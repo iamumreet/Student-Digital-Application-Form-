@@ -20,6 +20,55 @@ import { studentToSpreadsheetRow } from './spreadsheetService';
 const COLLECTION_NAME = 'students';
 const SPREADSHEET_COLLECTION = 'response_spreadsheet_rows';
 
+/**
+ * Default fallback admissions email derived from system configuration
+ */
+export const DEFAULT_ADMISSIONS_EMAIL = 'umreetkumar@gmail.com';
+
+/**
+ * Recursively removes any undefined values from objects and arrays
+ * while strictly preserving null, false, 0, empty strings, empty arrays, Dates,
+ * and Firestore FieldValues (such as serverTimestamp()).
+ */
+export function cleanForFirestore<T>(value: T): T {
+  if (value === undefined) {
+    return undefined as unknown as T;
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+
+  // Preserve Date objects
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item !== undefined)
+      .map((item) => cleanForFirestore(item)) as unknown as T;
+  }
+
+  // Check if it's a plain JavaScript object
+  const proto = Object.getPrototypeOf(value);
+  const isPlainObject = proto === null || proto === Object.prototype;
+
+  if (!isPlainObject) {
+    // Preserve Firestore FieldValue (serverTimestamp, deleteField) or custom SDK classes
+    return value;
+  }
+
+  const cleanedObj: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (val !== undefined) {
+      cleanedObj[key] = cleanForFirestore(val);
+    }
+  }
+
+  return cleanedObj as unknown as T;
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -113,12 +162,12 @@ export async function getNextLeadId(): Promise<string> {
 }
 
 /**
- * Full submission workflow:
+ * Resilient submission workflow:
  * 1. Validate all form data
  * 2. Generate unique Lead ID
- * 3. Generate official PDF
- * 4. Dispatch email notification to admissions
- * 5. Save COMPLETE response (all sections, photo, PDF reference, email status) to Firestore in a single create operation
+ * 3. Write core student application to Firestore /students immediately
+ * 4. Generate official PDF and attach to application
+ * 5. Dispatch optional email notification to admissions
  * 6. Add submission to response spreadsheet collection
  * 7. Return complete result for successful submission screen
  */
@@ -155,35 +204,65 @@ export async function submitStudentWorkflow(
     type: 'submission',
   };
 
-  // Base record with default status: NEW ENQUIRY
+  const studentDocRef = doc(collection(db, COLLECTION_NAME));
+  const studentDocId = studentDocRef.id;
+
+  // Base record with safe default status and admissions recipient
   const studentRecord: StudentRecord = {
     ...formData,
+    id: studentDocId,
     leadId,
     submittedAt,
     submittedAtFormatted,
     status: 'NEW ENQUIRY',
     activityHistory: [initialActivity],
     emailStatus: 'PENDING',
-    createdAt: submittedAt,
-    updatedAt: submittedAt,
+    emailRecipient: DEFAULT_ADMISSIONS_EMAIL,
   };
 
-  // Step 3: Generate professional PDF document
-  onProgress?.({ step: 4, message: 'Generating official Pathfinder PDF document...' });
+  // Step 3: Save primary application securely to Firestore /students FIRST
+  onProgress?.({ step: 3, message: 'Saving application securely to Pathfinder Firestore database...' });
+  try {
+    const primaryPayload = cleanForFirestore({
+      ...studentRecord,
+      id: studentDocId,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    await setDoc(studentDocRef, primaryPayload);
+  } catch (dbErr) {
+    console.error('Firestore save failed:', dbErr);
+    handleFirestoreError(dbErr, OperationType.CREATE, COLLECTION_NAME);
+  }
+
+  // Step 4: Generate professional PDF document
+  onProgress?.({ step: 5, message: 'Generating official Pathfinder PDF document...' });
   let pdfDataUri: string | undefined;
   try {
     const pdfResult = generateStudentPDF(studentRecord);
     pdfDataUri = pdfResult.dataUri;
     studentRecord.pdfUrl = pdfDataUri;
     studentRecord.pdfGeneratedAt = new Date().toISOString();
+
+    await updateDoc(
+      studentDocRef,
+      cleanForFirestore({
+        pdfUrl: pdfDataUri,
+        pdfGeneratedAt: studentRecord.pdfGeneratedAt,
+        updatedAt: serverTimestamp(),
+      })
+    ).catch((pdfUpdateErr) => {
+      console.warn('PDF Firestore reference update warning (application preserved):', pdfUpdateErr);
+    });
   } catch (pdfErr) {
-    console.error('PDF generation error (submission preserved):', pdfErr);
+    console.error('PDF generation warning (application preserved):', pdfErr);
   }
 
-  // Step 4: Dispatch email notification to admissions
-  onProgress?.({ step: 6, message: 'Dispatching notification email to Pathfinder Admissions...' });
+  // Step 5: Optional notification dispatch to admissions
+  onProgress?.({ step: 7, message: 'Dispatching notification email to Pathfinder Admissions...' });
   let emailStatus: EmailStatus = 'PENDING';
-  let emailRecipient: string | undefined;
+  let emailRecipient: string = DEFAULT_ADMISSIONS_EMAIL;
 
   try {
     const response = await fetch('/api/notify-email', {
@@ -204,7 +283,9 @@ export async function submitStudentWorkflow(
     if (response.ok) {
       const data = await response.json();
       emailStatus = data.emailStatus === 'SENT' ? 'SENT' : 'EMAIL_FAILED';
-      emailRecipient = data.recipient;
+      if (data.recipient) {
+        emailRecipient = data.recipient;
+      }
     } else {
       emailStatus = 'EMAIL_FAILED';
     }
@@ -217,36 +298,32 @@ export async function submitStudentWorkflow(
   studentRecord.emailRecipient = emailRecipient;
   studentRecord.emailSentAt = emailStatus === 'SENT' ? new Date().toISOString() : undefined;
 
-  // Step 5: Save complete response securely to Firestore in a single create operation
-  onProgress?.({ step: 8, message: 'Saving application securely to Pathfinder Firestore database...' });
-  let studentDocId = '';
+  // Persist notification status back to Firestore doc (non-blocking for student application)
   try {
-    const studentDocRef = doc(collection(db, COLLECTION_NAME));
-    studentDocId = studentDocRef.id;
-    studentRecord.id = studentDocId;
-
-    await setDoc(studentDocRef, {
-      ...studentRecord,
-      id: studentDocId,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  } catch (dbErr) {
-    console.error('Firestore save failed:', dbErr);
-    handleFirestoreError(dbErr, OperationType.CREATE, COLLECTION_NAME);
+    await updateDoc(
+      studentDocRef,
+      cleanForFirestore({
+        emailStatus: studentRecord.emailStatus,
+        emailRecipient: studentRecord.emailRecipient,
+        emailSentAt: studentRecord.emailSentAt,
+        updatedAt: serverTimestamp(),
+      })
+    );
+  } catch (emailUpdateErr) {
+    console.warn('Email status Firestore update warning (application preserved):', emailUpdateErr);
   }
 
-  // Step 6: Add submission to response spreadsheet collection
+  // Step 6: Add submission to response spreadsheet collection (non-blocking)
   onProgress?.({ step: 9, message: 'Recording entry in Pathfinder Response Spreadsheet...' });
   try {
     const spreadsheetRow = studentToSpreadsheetRow(studentRecord);
-    const rowRecord = {
+    const rowRecord = cleanForFirestore({
       leadId,
       submittedAt,
       studentName: studentRecord.fullName,
       rowData: spreadsheetRow,
       createdAt: serverTimestamp(),
-    };
+    });
 
     const rowRef = doc(collection(db, SPREADSHEET_COLLECTION));
     await setDoc(rowRef, rowRecord);
@@ -266,7 +343,7 @@ export async function submitStudentWorkflow(
     student: studentRecord,
     pdfDataUri,
     emailStatus,
-    emailRecipient,
+    emailRecipient: studentRecord.emailRecipient,
   };
 }
 
@@ -299,18 +376,19 @@ export async function resendStudentNotification(student: StudentRecord): Promise
 
     const data = await response.json();
     const now = new Date();
+    const recipient = data.recipient || DEFAULT_ADMISSIONS_EMAIL;
 
     if (student.id) {
       await updateStudent(
         student.id,
-        {
+        cleanForFirestore({
           emailStatus: 'SENT',
           emailSentAt: now.toISOString(),
-          emailRecipient: data.recipient,
-        },
+          emailRecipient: recipient,
+        }),
         {
           title: 'Notification email resent',
-          description: `Staff resent notification alert to ${data.recipient || 'admissions office'}`,
+          description: `Staff resent notification alert to ${recipient}`,
           author: 'Authorized Staff',
           type: 'email',
         }
@@ -402,10 +480,12 @@ export async function updateStudent(
       updates.activityHistory = currentActivities;
     }
 
-    await updateDoc(studentRef, {
+    const cleanedUpdates = cleanForFirestore({
       ...updates,
       updatedAt: serverTimestamp(),
     });
+
+    await updateDoc(studentRef, cleanedUpdates);
   } catch (error) {
     console.error('Error updating student in Firestore:', error);
     handleFirestoreError(error, OperationType.UPDATE, `${COLLECTION_NAME}/${studentId}`);

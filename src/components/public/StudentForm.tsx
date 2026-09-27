@@ -59,6 +59,7 @@ export const StudentForm: React.FC = () => {
 
   // Submission Workflow State
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [submissionProgress, setSubmissionProgress] = useState<SubmissionWorkflowProgress | null>(null);
   const [submittedResult, setSubmittedResult] = useState<{
     leadId: string;
@@ -206,6 +207,7 @@ export const StudentForm: React.FC = () => {
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+    setSubmissionError(null);
     setSubmissionProgress({ step: 1, message: 'Submitting...' });
 
     try {
@@ -236,7 +238,8 @@ export const StudentForm: React.FC = () => {
     } catch (err: unknown) {
       console.error('Submission failed:', err);
       const errMsg = err instanceof Error ? err.message : 'Please check your connection and retry.';
-      alert(`Submission error: ${errMsg}`);
+      setSubmissionError(`Submission error: ${errMsg}`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setIsSubmitting(false);
     }
@@ -354,6 +357,23 @@ export const StudentForm: React.FC = () => {
               {submissionProgress?.message || 'Please wait while we record your application...'}
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Error Alert */}
+      {submissionError && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800 text-sm flex items-start justify-between gap-3 shadow-sm">
+          <div>
+            <p className="font-semibold">Unable to Complete Submission</p>
+            <p className="mt-1 text-xs text-red-700">{submissionError}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSubmissionError(null)}
+            className="text-red-500 hover:text-red-700 text-xs font-semibold px-2 py-1 rounded border border-red-200 bg-white"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

@@ -198,6 +198,7 @@ app.post('/api/notify-email', (req: Request, res: Response) => {
       res.status(400).json({
         success: false,
         emailStatus: 'EMAIL_FAILED',
+        recipient: getOwnerEmail(),
         error: 'Missing required fields (leadId, studentName)',
       });
       return;
@@ -254,6 +255,7 @@ app.post('/api/notify-email', (req: Request, res: Response) => {
     res.json({
       success: true,
       emailStatus: 'SENT',
+      recipient,
       subject,
       sentAt: sentEntry.sentAt,
       message: 'Notification email dispatched to authorized staff inbox',
@@ -264,6 +266,7 @@ app.post('/api/notify-email', (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       emailStatus: 'EMAIL_FAILED',
+      recipient: getOwnerEmail(),
       error: errorMessage,
     });
   }
