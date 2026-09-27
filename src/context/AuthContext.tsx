@@ -9,10 +9,26 @@ import {
 import { auth } from '../config/firebase';
 
 export const AUTHORIZED_STAFF_PRIMARY_EMAIL = 'umreetkumar@gmail.com';
-export const AUTHORIZED_STAFF_EMAILS = [
+export const AUTHORIZED_STAFF_EMAILS: readonly string[] = [
   'umreetkumar@gmail.com',
+  'reception.pathfinders@gmail.com',
+  'admission@pathfinders.com.np',
+  'bdm@pathfinders.com.np',
+  'director@pathfinders.com.np',
+  'australia@pathfinders.com.np',
+  'info@pathfinders.com.np',
+  'uk@pathfinders.com.np',
   'ubmotionpicturesmusic@gmail.com', // AI Studio workspace administrator account
 ];
+
+/**
+ * Normalizes an email address to lowercase and checks against authorized staff accounts
+ */
+export const isAuthorizedStaffEmail = (email: string | null | undefined): boolean => {
+  if (!email) return false;
+  const normalized = email.toLowerCase().trim();
+  return AUTHORIZED_STAFF_EMAILS.some((allowed) => allowed.toLowerCase().trim() === normalized);
+};
 
 interface AuthUser {
   uid: string;
@@ -42,10 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user: User | null) => {
       if (user) {
-        const userEmail = (user.email || '').toLowerCase().trim();
-        const isAuthorized = AUTHORIZED_STAFF_EMAILS.some(
-          (allowed) => allowed.toLowerCase() === userEmail
-        );
+        const isAuthorized = isAuthorizedStaffEmail(user.email);
 
         if (isAuthorized) {
           setCurrentUser({
@@ -61,7 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fbSignOut(auth).catch(() => {});
           setCurrentUser(null);
           setAccessDeniedError(
-            `Access Denied (${user.email}): You are not authorized to access the Pathfinder Staff Portal. Access is strictly restricted to ${AUTHORIZED_STAFF_PRIMARY_EMAIL}.`
+            `Access Denied (${user.email}): You are not authorized to access the Pathfinder Staff Portal. Access is restricted to authorized Pathfinder staff accounts.`
           );
         }
       } else {
@@ -84,14 +97,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       const result = await signInWithPopup(auth, provider);
-      const userEmail = (result.user.email || '').toLowerCase().trim();
-      const isAuthorized = AUTHORIZED_STAFF_EMAILS.some(
-        (allowed) => allowed.toLowerCase() === userEmail
-      );
+      const isAuthorized = isAuthorizedStaffEmail(result.user.email);
 
       if (!isAuthorized) {
         await fbSignOut(auth);
-        const errMsg = `Access Denied (${result.user.email}): Access is strictly restricted to authorized staff (${AUTHORIZED_STAFF_PRIMARY_EMAIL}).`;
+        const errMsg = `Access Denied (${result.user.email}): Access is restricted to authorized Pathfinder staff accounts.`;
         setAccessDeniedError(errMsg);
         throw new Error(errMsg);
       }
@@ -116,12 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const isStaff =
-    !!currentUser &&
-    !!currentUser.email &&
-    AUTHORIZED_STAFF_EMAILS.some(
-      (allowed) => allowed.toLowerCase() === currentUser.email?.toLowerCase().trim()
-    );
+  const isStaff = !!currentUser && isAuthorizedStaffEmail(currentUser.email);
 
   return (
     <AuthContext.Provider

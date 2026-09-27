@@ -5,10 +5,20 @@ service cloud.firestore {
 
     // Helper function to verify authorized staff
     function isStaff() {
-      return request.auth != null && (
-        request.auth.token.email.lower() == 'umreetkumar@gmail.com' ||
-        request.auth.token.email.lower() == 'ubmotionpicturesmusic@gmail.com'
-      );
+      return request.auth != null &&
+        request.auth.token.email != null && (
+          request.auth.token.email.lower() in [
+            'umreetkumar@gmail.com',
+            'reception.pathfinders@gmail.com',
+            'admission@pathfinders.com.np',
+            'bdm@pathfinders.com.np',
+            'director@pathfinders.com.np',
+            'australia@pathfinders.com.np',
+            'info@pathfinders.com.np',
+            'uk@pathfinders.com.np',
+            'ubmotionpicturesmusic@gmail.com'
+          ]
+        );
     }
 
     // Students collection:

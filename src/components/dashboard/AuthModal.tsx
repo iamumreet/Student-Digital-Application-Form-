@@ -85,8 +85,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <p>
               Access to student enquiry records, response spreadsheets, and counselling notes is restricted to authorized Pathfinder International Education staff members.
             </p>
-            <div className="pt-1 text-[11px] text-slate-500 font-mono">
-              Authorized Account: <span className="font-semibold text-slate-700">{AUTHORIZED_STAFF_PRIMARY_EMAIL}</span>
+            <div className="pt-1 text-[11px] text-slate-500">
+              Authorized Accounts: <span className="font-semibold text-slate-700">Pathfinder Staff &amp; Admissions Accounts</span>
             </div>
           </div>
 
