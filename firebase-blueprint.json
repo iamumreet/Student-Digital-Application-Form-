@@ -1,0 +1,90 @@
+{
+  "entities": {
+    "Student": {
+      "title": "Student Application Record",
+      "description": "Comprehensive student counselling & enquiry application submitted through Pathfinder portal",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Firestore document ID" },
+        "leadId": { "type": "string", "description": "Unique sequential lead identifier (e.g. PF-2026-000001)" },
+        "fullName": { "type": "string", "description": "Student full legal name" },
+        "guardianName": { "type": "string", "description": "Father/Mother/Guardian name" },
+        "guardianContactNumber": { "type": "string", "description": "Guardian phone number" },
+        "dateOfBirth": { "type": "string", "description": "Student date of birth" },
+        "gender": { "type": "string", "description": "Student gender" },
+        "maritalStatus": { "type": "string", "description": "Marital status (Single, Married)" },
+        "mobileNumber": { "type": "string", "description": "Contact mobile number" },
+        "email": { "type": "string", "description": "Student email address" },
+        "address": { "type": "string", "description": "Permanent/Current address" },
+        "photoUrl": { "type": "string", "description": "Student photograph reference or optimized data URL" },
+        "academicDetails": { "type": "object", "description": "Academic records across SEE, +2, Bachelor, Master" },
+        "workExperience": { "type": "string", "description": "Employment and internship history" },
+        "hasEducationGap": { "type": "string", "description": "Yes or No gap flag" },
+        "educationGapDuration": { "type": "string", "description": "Explanation and duration of gap" },
+        "choiceOfProgram": { "type": "string", "description": "Intended program or course of study" },
+        "interestedCountry": { "type": "string", "description": "Primary destination country" },
+        "hasAppliedOtherCountries": { "type": "string", "description": "Previous visa or application history flag" },
+        "previousCountriesApplied": { "type": "string", "description": "Details of previous applications" },
+        "testsTaken": { "type": "array", "description": "List of English and aptitude tests taken" },
+        "testScore": { "type": "string", "description": "Scores and breakdown" },
+        "questionType": { "type": "string", "description": "Primary guidance and counselling category" },
+        "howDidYouKnow": { "type": "string", "description": "Source attribution" },
+        "submittedAt": { "type": "string", "description": "ISO timestamp of application submission" },
+        "submittedAtFormatted": { "type": "string", "description": "Human readable submission timestamp" },
+        "status": { "type": "string", "description": "Application counselling status" },
+        "counsellingNotes": { "type": "string", "description": "Internal notes added by counselling staff" },
+        "internalRemarks": { "type": "string", "description": "Administrative notes" },
+        "assignedCounsellorId": { "type": "string", "description": "Assigned counsellor identifier" },
+        "assignedCounsellorName": { "type": "string", "description": "Assigned counsellor name" },
+        "intake": { "type": "string", "description": "Intended intake term" },
+        "followUpDate": { "type": "string", "description": "Next scheduled follow-up date" },
+        "emailStatus": { "type": "string", "description": "Admissions email notification status" },
+        "emailRecipient": { "type": "string", "description": "Admissions email recipient" },
+        "emailSentAt": { "type": "string", "description": "Timestamp when email notification was dispatched" },
+        "pdfUrl": { "type": "string", "description": "Generated application PDF document reference" },
+        "pdfGeneratedAt": { "type": "string", "description": "Timestamp of PDF generation" },
+        "activityHistory": { "type": "array", "description": "Timeline of status changes, notes, and counselling logs" },
+        "createdAt": { "type": "string", "description": "Firestore server timestamp" },
+        "updatedAt": { "type": "string", "description": "Firestore server timestamp" }
+      },
+      "required": ["leadId", "fullName", "mobileNumber", "email", "submittedAt", "status"]
+    },
+    "Counter": {
+      "title": "Application Sequence Counter",
+      "description": "Maintains persistent sequential numeric counters for Lead ID generation",
+      "type": "object",
+      "properties": {
+        "currentCount": { "type": "number", "description": "Current sequence count" },
+        "updatedAt": { "type": "string", "description": "Last updated timestamp" }
+      },
+      "required": ["currentCount"]
+    },
+    "ResponseSpreadsheetRow": {
+      "title": "Spreadsheet Response Row",
+      "description": "Individual row in the Google Sheets formatted responses collection",
+      "type": "object",
+      "properties": {
+        "leadId": { "type": "string", "description": "Associated lead ID" },
+        "submittedAt": { "type": "string", "description": "Submission timestamp" },
+        "studentName": { "type": "string", "description": "Student full name" },
+        "rowData": { "type": "array", "description": "Array of column values matching spreadsheet format" },
+        "createdAt": { "type": "string", "description": "Creation timestamp" }
+      },
+      "required": ["leadId", "submittedAt", "studentName", "rowData"]
+    }
+  },
+  "firestore": {
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Student applications and counselling enquiries"
+    },
+    "/counters/{counterId}": {
+      "schema": { "$ref": "#/entities/Counter" },
+      "description": "Sequential ID generation counters"
+    },
+    "/response_spreadsheet_rows/{rowId}": {
+      "schema": { "$ref": "#/entities/ResponseSpreadsheetRow" },
+      "description": "Flattened application rows matching official response spreadsheet"
+    }
+  }
+}

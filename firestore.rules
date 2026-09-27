@@ -2,43 +2,49 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Students collection
+
+    // Helper function to verify authorized staff
+    function isStaff() {
+      return request.auth != null && (
+        request.auth.token.email.lower() == 'umreetkumar@gmail.com' ||
+        request.auth.token.email.lower() == 'ubmotionpicturesmusic@gmail.com'
+      );
+    }
+
+    // Students collection:
+    // Anyone with the public link can submit their enquiry (create)
+    // Only authenticated authorized staff can view (read), update, or delete applications
     match /students/{studentId} {
-      // Anyone can create a student enquiry (public submission)
       allow create: if true;
-      // Only authenticated counsellors/staff can read, update, or delete
-      allow read, update, delete: if request.auth != null;
-      
-      // Sub-collections under student, such as activity or notes
+      allow read, update, delete: if isStaff();
+
       match /{subcollection}/{docId} {
         allow create: if true;
-        allow read, update, delete: if request.auth != null;
+        allow read, update, delete: if isStaff();
       }
     }
 
-    // Counters collection for Lead ID sequence
+    // Counters collection for generating sequential Lead IDs (e.g. PF-2026-000001)
     match /counters/{counterId} {
-      // Public submissions need to increment the counter
       allow read, write: if true;
     }
 
-    // Counsellors collection (staff directory)
+    // Response Spreadsheet rows collection
+    match /response_spreadsheet_rows/{rowId} {
+      allow create: if true;
+      allow read, update, delete: if isStaff();
+    }
+
+    // Counsellors directory
     match /counsellors/{counsellorId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if isStaff();
     }
 
     // System settings
     match /settings/{settingId} {
       allow read: if true;
-      allow write: if request.auth != null;
-    }
-
-    // Response Spreadsheet rows collection (replicates Google Sheets rows)
-    match /response_spreadsheet_rows/{rowId} {
-      allow create: if true;
-      allow read, update, delete: if request.auth != null;
+      allow write: if isStaff();
     }
   }
 }

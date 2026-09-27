@@ -13,7 +13,6 @@ import { StudentRecord } from '../../types/student';
 import {
   getAllStudents,
   subscribeToStudents,
-  seedInitialStudentsIfEmpty,
 } from '../../services/studentService';
 import { exportStudentsToExcel } from '../../services/spreadsheetService';
 import { StudentDetailModal } from './StudentDetailModal';
@@ -32,23 +31,29 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
   // Primary Data State
   const [students, setStudents] = useState<StudentRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
 
   // Real-time Firestore sync on mount
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
+    setFetchError(null);
 
     const init = async () => {
       try {
-        await seedInitialStudentsIfEmpty();
         const initial = await getAllStudents();
-        if (isMounted && initial.length > 0) {
+        if (isMounted) {
           setStudents(initial);
           setLoading(false);
+          setFetchError(null);
         }
-      } catch (e) {
+      } catch (e: unknown) {
         console.warn('Initial student fetch:', e);
+        if (isMounted) {
+          setFetchError(e instanceof Error ? e.message : 'Error retrieving applications from Firestore.');
+          setLoading(false);
+        }
       }
 
       // Establish real-time Firestore listener
@@ -57,11 +62,15 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
           if (isMounted) {
             setStudents(records);
             setLoading(false);
+            setFetchError(null);
           }
         },
-        (err) => {
+        (err: unknown) => {
           console.warn('Firestore subscription status:', err);
-          if (isMounted) setLoading(false);
+          if (isMounted) {
+            setFetchError(err instanceof Error ? err.message : 'Real-time sync error.');
+            setLoading(false);
+          }
         }
       );
 
@@ -82,11 +91,13 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
   // Manual refresh trigger
   const handleRefresh = async () => {
     setLoading(true);
+    setFetchError(null);
     try {
       const records = await getAllStudents();
       setStudents(records);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error refreshing students:', err);
+      setFetchError(err instanceof Error ? err.message : 'Error refreshing applications.');
     } finally {
       setLoading(false);
     }
@@ -207,6 +218,7 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
           onSelectStudent={(student) => setSelectedStudent(student)}
           onRefresh={handleRefresh}
           loading={loading}
+          error={fetchError}
         />
       </main>
 

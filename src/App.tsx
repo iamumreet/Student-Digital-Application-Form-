@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/common/Navbar';
 import { StudentForm } from './components/public/StudentForm';
@@ -11,9 +11,16 @@ import { CounsellorDashboard } from './components/dashboard/CounsellorDashboard'
 import { AuthModal } from './components/dashboard/AuthModal';
 
 function MainApp() {
-  const { isStaff } = useAuth();
+  const { isStaff, loading: authLoading } = useAuth();
   const [currentView, setCurrentView] = useState<'student' | 'dashboard'>('student');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+
+  // Automatically transition to dashboard when staff signs in
+  useEffect(() => {
+    if (isStaff && currentView === 'dashboard') {
+      setIsAuthModalOpen(false);
+    }
+  }, [isStaff, currentView]);
 
   const handleSwitchView = (view: 'student' | 'dashboard') => {
     if (view === 'dashboard' && !isStaff) {
@@ -61,8 +68,7 @@ function MainApp() {
         isOpen={isAuthModalOpen}
         onClose={() => {
           setIsAuthModalOpen(false);
-          // If staff now logged in, automatically switch to dashboard
-          if (localStorage.getItem('pf_staff_demo_user')) {
+          if (isStaff) {
             setCurrentView('dashboard');
           }
         }}

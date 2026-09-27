@@ -52,6 +52,7 @@ interface ResponseSpreadsheetViewProps {
   onSelectStudent: (student: StudentRecord) => void;
   onRefresh: () => void;
   loading: boolean;
+  error?: string | null;
 }
 
 // All 40 Columns required by user specification
@@ -110,6 +111,7 @@ export const ResponseSpreadsheetView: React.FC<ResponseSpreadsheetViewProps> = (
   onSelectStudent,
   onRefresh,
   loading,
+  error,
 }) => {
   const { currentUser } = useAuth();
   const staffName = currentUser?.displayName || 'Pathfinder Admissions Staff';
@@ -1154,14 +1156,56 @@ export const ResponseSpreadsheetView: React.FC<ResponseSpreadsheetViewProps> = (
 
           {/* Table Body */}
           <tbody className="divide-y divide-slate-200 text-slate-700">
-            {paginatedStudents.length === 0 ? (
+            {loading && students.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={visibleColumnIds.size + 1}
+                  className="py-20 text-center text-slate-500 bg-white"
+                >
+                  <RefreshCw className="w-9 h-9 mx-auto mb-3 animate-spin text-[#0066A6]" />
+                  <p className="text-sm font-bold text-slate-800">Loading student applications...</p>
+                  <p className="text-xs text-slate-500 mt-1">Retrieving shared applications from Firestore database</p>
+                </td>
+              </tr>
+            ) : error && students.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={visibleColumnIds.size + 1}
+                  className="py-20 text-center text-rose-700 bg-rose-50/50"
+                >
+                  <AlertTriangle className="w-9 h-9 mx-auto mb-3 text-rose-500" />
+                  <p className="text-sm font-bold text-rose-900">Failed to load student applications</p>
+                  <p className="text-xs text-rose-700 mt-1 max-w-md mx-auto">{error}</p>
+                  <button
+                    type="button"
+                    onClick={onRefresh}
+                    className="mt-4 px-4 py-2 rounded-lg bg-[#0066A6] text-white text-xs font-bold shadow-xs hover:bg-[#004F82] transition-colors"
+                  >
+                    Retry Firestore Fetch
+                  </button>
+                </td>
+              </tr>
+            ) : students.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={visibleColumnIds.size + 1}
+                  className="py-20 text-center text-slate-500 bg-white"
+                >
+                  <FileSpreadsheet className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                  <p className="text-base font-bold text-slate-800">No student applications submitted yet</p>
+                  <p className="text-xs text-slate-500 mt-1 max-w-lg mx-auto leading-relaxed">
+                    When a student submits their enquiry through the public Student Counselling &amp; Enquiry Form, their complete application will appear here immediately in real time.
+                  </p>
+                </td>
+              </tr>
+            ) : paginatedStudents.length === 0 ? (
               <tr>
                 <td
                   colSpan={visibleColumnIds.size + 1}
                   className="py-16 text-center text-slate-400 bg-slate-50/50"
                 >
                   <FileSpreadsheet className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                  <p className="text-sm font-semibold text-slate-600">No student responses found</p>
+                  <p className="text-sm font-semibold text-slate-600">No matching student responses found</p>
                   <p className="text-xs text-slate-400 mt-1">
                     Try adjusting search keywords or clearing active filters.
                   </p>
