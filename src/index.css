@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --pf-blue: #0066A6;
+    --pf-blue-dark: #004F82;
+    --pf-blue-light: #EBF4FA;
+    --pf-orange: #F5821F;
+    --pf-orange-dark: #DE7114;
+    --pf-orange-light: #FEF3E8;
+    --pf-slate-dark: #0F172A;
+    --pf-slate-text: #1E293B;
+  }
+
+  body {
+    background-color: #F8FAFC;
+    color: #1E293B;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Print styling for student submission confirmation slip */
+@media print {
+  body {
+    background: white !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+}

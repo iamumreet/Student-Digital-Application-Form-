@@ -1,0 +1,44 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Students collection
+    match /students/{studentId} {
+      // Anyone can create a student enquiry (public submission)
+      allow create: if true;
+      // Only authenticated counsellors/staff can read, update, or delete
+      allow read, update, delete: if request.auth != null;
+      
+      // Sub-collections under student, such as activity or notes
+      match /{subcollection}/{docId} {
+        allow create: if true;
+        allow read, update, delete: if request.auth != null;
+      }
+    }
+
+    // Counters collection for Lead ID sequence
+    match /counters/{counterId} {
+      // Public submissions need to increment the counter
+      allow read, write: if true;
+    }
+
+    // Counsellors collection (staff directory)
+    match /counsellors/{counsellorId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // System settings
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Response Spreadsheet rows collection (replicates Google Sheets rows)
+    match /response_spreadsheet_rows/{rowId} {
+      allow create: if true;
+      allow read, update, delete: if request.auth != null;
+    }
+  }
+}

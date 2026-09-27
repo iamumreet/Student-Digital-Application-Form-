@@ -1,0 +1,6 @@
+{
+  "name": "Pathfinder Student Counselling & Application Portal",
+  "description": "Official counselling and study abroad application management portal for Pathfinder International Education students and counsellors.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
