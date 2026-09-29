@@ -115,22 +115,50 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
   }, []);
 
   // Support direct selection when opened via email "View Application" link (e.g. ?leadId=PF-2026-000001)
+  const hasHandledUrlLeadId = useRef<boolean>(false);
+
   useEffect(() => {
-    if (students.length > 0 && !selectedStudent) {
+    if (students.length > 0 && !hasHandledUrlLeadId.current) {
       const params = new URLSearchParams(window.location.search);
       const targetLeadId = params.get('leadId') || params.get('id');
       if (targetLeadId) {
-        const found = students.find((s) => s.leadId === targetLeadId || s.id === targetLeadId);
+        const cleanTarget = targetLeadId.trim().toUpperCase();
+        const found = students.find(
+          (s) =>
+            (s.leadId && s.leadId.trim().toUpperCase() === cleanTarget) ||
+            s.id === targetLeadId ||
+            (s.id && s.id.trim().toUpperCase() === cleanTarget)
+        );
         if (found) {
+          hasHandledUrlLeadId.current = true;
           setSelectedStudent(found);
+
+          // Clean up search param in address bar quietly without reload so closing modal doesn't re-trigger it
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.delete('leadId');
+            url.searchParams.delete('id');
+            const cleanSearch = url.searchParams.toString();
+            window.history.replaceState(
+              {},
+              document.title,
+              url.pathname + (cleanSearch ? `?${cleanSearch}` : '') + url.hash
+            );
+          } catch {
+            // Ignore if history state update not supported
+          }
+
           // Auto mark as read when opened via direct lead link
           if (found.id && found.unread === true) {
             markEnquiryAsRead(found.id, true);
+            setStudents((prev) =>
+              prev.map((s) => (s.id === found.id ? { ...s, unread: false } : s))
+            );
           }
         }
       }
     }
-  }, [students, selectedStudent]);
+  }, [students]);
 
   // Manual refresh trigger
   const handleRefresh = async () => {

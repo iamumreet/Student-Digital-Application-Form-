@@ -26,7 +26,7 @@ function MainApp() {
     }
   }, [isStaff, currentView]);
 
-  // Support direct linking from staff notification email (e.g. ?view=staff&leadId=...)
+  // Support direct linking from staff notification email (e.g. ?leadId=... or ?view=staff)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const hash = window.location.hash;
@@ -34,13 +34,13 @@ function MainApp() {
       params.get('view') === 'staff' ||
       params.get('view') === 'dashboard' ||
       params.has('leadId') ||
+      params.has('id') ||
       hash.includes('staff-portal') ||
       hash.includes('counsellor');
 
     if (isStaffRequested) {
-      if (isStaff) {
-        setCurrentView('dashboard');
-      } else if (!authLoading) {
+      setCurrentView('dashboard');
+      if (!isStaff && !authLoading) {
         setIsAuthModalOpen(true);
       }
     }

@@ -78,20 +78,44 @@ export interface NotificationLog {
 const notificationLogs: NotificationLog[] = [];
 
 /**
- * Computes the authenticated Staff Portal link for the prominent email button
+ * Production Staff Portal URL - Guaranteed Vercel production deployment
  */
-const getStaffPortalUrl = (req: Request, applicationId: string): string => {
-  const configuredAppUrl = process.env.APP_URL;
-  if (configuredAppUrl && configuredAppUrl.trim()) {
-    const cleanUrl = configuredAppUrl.trim().replace(/\/+$/, '');
-    return `${cleanUrl}/?view=staff&leadId=${encodeURIComponent(applicationId)}`;
+export const PRODUCTION_STAFF_PORTAL_URL = 'https://student-digital-application-form.vercel.app';
+
+/**
+ * Computes the authenticated Staff Portal link for the prominent email button.
+ * CRITICAL REQUIREMENTS:
+ * - NEVER points to a Google AI Studio URL, Google Cloud Run URL, Firebase console URL,
+ *   Google authentication URL, localhost URL, preview URL, or any obsolete URL.
+ * - Production base URL MUST be: https://student-digital-application-form.vercel.app
+ * - URL format includes the student's Lead ID: https://student-digital-application-form.vercel.app/?leadId={LEAD_ID}
+ */
+export const getStaffPortalUrl = (_req?: Request, applicationId?: string): string => {
+  const ref = String(applicationId || '').trim();
+
+  // If APP_URL is provided via environment, validate that it is a safe production domain
+  // (strictly reject localhost, 127.0.0.1, google.com, run.app, ais-dev, ais-pre, firebaseapp)
+  const configuredAppUrl = process.env.APP_URL?.trim();
+  let baseUrl = PRODUCTION_STAFF_PORTAL_URL;
+
+  if (
+    configuredAppUrl &&
+    !configuredAppUrl.includes('localhost') &&
+    !configuredAppUrl.includes('127.0.0.1') &&
+    !configuredAppUrl.includes('.run.app') &&
+    !configuredAppUrl.includes('google') &&
+    !configuredAppUrl.includes('ais-dev') &&
+    !configuredAppUrl.includes('ais-pre') &&
+    !configuredAppUrl.includes('firebaseapp.com') &&
+    !configuredAppUrl.includes('web.app')
+  ) {
+    baseUrl = configuredAppUrl.replace(/\/+$/, '');
   }
 
-  // Derive origin from request headers
-  const host = req.get('host') || 'localhost:3000';
-  const protocol =
-    req.protocol === 'https' || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-  return `${protocol}://${host}/?view=staff&leadId=${encodeURIComponent(applicationId)}`;
+  // Strictly adhere to required format: https://student-digital-application-form.vercel.app/?leadId={LEAD_ID}
+  return ref
+    ? `${baseUrl}/?leadId=${encodeURIComponent(ref)}`
+    : `${baseUrl}/?view=staff`;
 };
 
 /**
@@ -293,8 +317,10 @@ export const buildStudentStatusEmailPayload = (data: {
   newStatus: string;
   staffMessage?: string;
   updatedAt?: string;
+  staffPortalUrl?: string;
 }) => {
   const refId = data.applicationId;
+  const staffPortalUrl = data.staffPortalUrl || getStaffPortalUrl(undefined, refId);
   const updateDate = data.updatedAt
     ? new Date(data.updatedAt).toLocaleString('en-GB', {
         day: '2-digit',
@@ -332,6 +358,11 @@ Current Status:
 ${data.newStatus}
 ${messageBlock}
 Our team will continue to assist you with your application.
+
+--------------------------------------------------
+VIEW APPLICATION IN STAFF PORTAL:
+${staffPortalUrl}
+--------------------------------------------------
 
 Regards,
 Pathfinder International Education
@@ -422,6 +453,16 @@ Tel: 01-5361805 | 01-5361853 | Email: info@pathfinders.com.np
               </div>
 
               ${htmlMessageSection}
+
+              <!-- Prominent View Application in Staff Portal Button -->
+              <div style="text-align: center; margin: 28px 0 20px 0;">
+                <a href="${staffPortalUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #0066A6; color: #FFFFFF; font-size: 14px; font-weight: 700; text-decoration: none; padding: 12px 28px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 102, 166, 0.25); text-align: center; letter-spacing: 0.3px;">
+                  VIEW APPLICATION IN STAFF PORTAL &rarr;
+                </a>
+                <div style="font-size: 11px; color: #94A3B8; margin-top: 8px;">
+                  Staff Portal Access &bull; Authorized Pathfinder staff accounts only
+                </div>
+              </div>
 
               <p style="font-size: 14px; color: #475569; margin: 24px 0 0 0; line-height: 1.6;">
                 Our team will continue to assist you with your application. If you have any questions or need further guidance, please feel free to reach out to our counselling team.
@@ -1098,6 +1139,8 @@ app.post('/api/notify-student-status', async (req: Request, res: Response) => {
       return;
     }
 
+    const staffPortalUrl = getStaffPortalUrl(req, refId);
+
     const { subject, textBody, htmlBody } = buildStudentStatusEmailPayload({
       applicationId: refId,
       studentName,
@@ -1105,6 +1148,7 @@ app.post('/api/notify-student-status', async (req: Request, res: Response) => {
       newStatus,
       staffMessage,
       updatedAt: now,
+      staffPortalUrl,
     });
 
     const dispatchResult = await sendEmailNotification({
