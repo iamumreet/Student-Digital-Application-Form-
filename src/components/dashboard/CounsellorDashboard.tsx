@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FileSpreadsheet,
   ExternalLink,
@@ -8,23 +8,39 @@ import {
   RefreshCw,
   LogOut,
   Sparkles,
+  Bell,
+  CheckCheck,
+  Check,
+  Inbox,
+  Clock,
+  ChevronRight,
+  User,
+  Globe,
 } from 'lucide-react';
 import { StudentRecord } from '../../types/student';
 import {
   getAllStudents,
   subscribeToStudents,
+  markEnquiryAsRead,
+  markAllEnquiriesAsRead,
+  syncStudentsWithRegistry,
 } from '../../services/studentService';
 import { exportStudentsToExcel } from '../../services/spreadsheetService';
 import { StudentDetailModal } from './StudentDetailModal';
 import { ResponseSpreadsheetView } from './ResponseSpreadsheetView';
+import { NotificationBell } from './NotificationBell';
 import { useAuth } from '../../context/AuthContext';
 
 interface CounsellorDashboardProps {
   onSwitchToPublicForm: () => void;
+  externalSelectedStudent?: StudentRecord | null;
+  onClearExternalSelectedStudent?: () => void;
 }
 
 export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
   onSwitchToPublicForm,
+  externalSelectedStudent,
+  onClearExternalSelectedStudent,
 }) => {
   const { currentUser, logout } = useAuth();
 
@@ -33,6 +49,14 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<StudentRecord | null>(null);
+
+  // Synchronize externalSelectedStudent if opened from top Navbar notification
+  useEffect(() => {
+    if (externalSelectedStudent) {
+      setSelectedStudent(externalSelectedStudent);
+      onClearExternalSelectedStudent?.();
+    }
+  }, [externalSelectedStudent, onClearExternalSelectedStudent]);
 
   // Real-time Firestore sync on mount
   useEffect(() => {
@@ -47,6 +71,7 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
           setStudents(initial);
           setLoading(false);
           setFetchError(null);
+          syncStudentsWithRegistry(initial);
         }
       } catch (e: unknown) {
         console.warn('Initial student fetch:', e);
@@ -63,6 +88,7 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
             setStudents(records);
             setLoading(false);
             setFetchError(null);
+            syncStudentsWithRegistry(records);
           }
         },
         (err: unknown) => {
@@ -88,6 +114,24 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
     };
   }, []);
 
+  // Support direct selection when opened via email "View Application" link (e.g. ?leadId=PF-2026-000001)
+  useEffect(() => {
+    if (students.length > 0 && !selectedStudent) {
+      const params = new URLSearchParams(window.location.search);
+      const targetLeadId = params.get('leadId') || params.get('id');
+      if (targetLeadId) {
+        const found = students.find((s) => s.leadId === targetLeadId || s.id === targetLeadId);
+        if (found) {
+          setSelectedStudent(found);
+          // Auto mark as read when opened via direct lead link
+          if (found.id && found.unread === true) {
+            markEnquiryAsRead(found.id, true);
+          }
+        }
+      }
+    }
+  }, [students, selectedStudent]);
+
   // Manual refresh trigger
   const handleRefresh = async () => {
     setLoading(true);
@@ -95,11 +139,23 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
     try {
       const records = await getAllStudents();
       setStudents(records);
+      syncStudentsWithRegistry(records);
     } catch (err: unknown) {
       console.error('Error refreshing students:', err);
       setFetchError(err instanceof Error ? err.message : 'Error refreshing applications.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Open enquiry detail and mark as read
+  const handleOpenStudent = async (student: StudentRecord) => {
+    setSelectedStudent(student);
+    if (student.id && student.unread === true) {
+      await markEnquiryAsRead(student.id, true);
+      setStudents((prev) =>
+        prev.map((s) => (s.id === student.id ? { ...s, unread: false } : s))
+      );
     }
   };
 
@@ -128,7 +184,18 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Notification Bell with Numeric Badge (in Authorized Staff header area) */}
+            <NotificationBell
+              theme="dark"
+              students={students}
+              onSelectStudent={handleOpenStudent}
+              onViewAllApplications={() => {
+                const tableElem = document.getElementById('staff-portal-container');
+                tableElem?.scrollIntoView({ behavior: 'smooth' });
+              }}
+            />
+
             <div className="flex items-center gap-2 bg-slate-800/80 px-2.5 py-1 rounded-lg border border-slate-700/60">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
               <span className="text-white font-semibold">
@@ -143,11 +210,11 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
               type="button"
               id="btn-staff-sign-out"
               onClick={logout}
-              className="inline-flex items-center gap-1 text-slate-400 hover:text-white transition-colors text-xs font-semibold"
+              className="inline-flex items-center gap-1 text-slate-400 hover:text-white transition-colors text-xs font-semibold cursor-pointer"
               title="Sign out of Staff Portal"
             >
               <LogOut className="w-3.5 h-3.5" />
-              Sign Out
+              <span className="hidden sm:inline">Sign Out</span>
             </button>
           </div>
         </div>
@@ -192,7 +259,7 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
                   `Pathfinder_Responses_${new Date().toISOString().slice(0, 10)}`
                 )
               }
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               Export .xlsx
@@ -202,7 +269,7 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
               type="button"
               id="btn-switch-to-student-form"
               onClick={onSwitchToPublicForm}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#0066A6] hover:bg-[#004F82] text-white text-xs font-bold transition-all shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#0066A6] hover:bg-[#004F82] text-white text-xs font-bold transition-all shadow-xs cursor-pointer"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               Open Student Form
@@ -215,7 +282,7 @@ export const CounsellorDashboard: React.FC<CounsellorDashboardProps> = ({
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
         <ResponseSpreadsheetView
           students={students}
-          onSelectStudent={(student) => setSelectedStudent(student)}
+          onSelectStudent={handleOpenStudent}
           onRefresh={handleRefresh}
           loading={loading}
           error={fetchError}

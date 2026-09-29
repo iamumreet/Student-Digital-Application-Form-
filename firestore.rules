@@ -23,10 +23,30 @@ service cloud.firestore {
 
     // Students collection:
     // Anyone with the public link can submit their enquiry (create)
-    // Only authenticated authorized staff can view (read), update, or delete applications
+    // Only authenticated authorized staff can view (read), delete, or manage applications
+    // Post-submission updates for notification status & PDF references are allowed
+    // Note: Staff in-app read/unread notification state can ONLY be modified by authenticated staff (isStaff())
     match /students/{studentId} {
       allow create: if true;
-      allow read, update, delete: if isStaff();
+      allow read, delete: if isStaff();
+      allow update: if isStaff() || request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'notificationStatus',
+        'staffNotificationStatus',
+        'studentNotificationStatus',
+        'statusHistory',
+        'notificationSentAt',
+        'notificationRecipients',
+        'notificationError',
+        'emailStatus',
+        'emailRecipient',
+        'emailSentAt',
+        'emailError',
+        'pdfUrl',
+        'pdfGeneratedAt',
+        'spreadsheetSynced',
+        'spreadsheetSyncedAt',
+        'updatedAt'
+      ]);
 
       match /{subcollection}/{docId} {
         allow create: if true;

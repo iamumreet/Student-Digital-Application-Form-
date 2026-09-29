@@ -21,10 +21,24 @@ import {
   Tag,
   ShieldCheck,
   FolderOpen,
+  Bell,
+  AlertCircle,
 } from 'lucide-react';
-import { StudentRecord, StudentStatus, ActivityItem } from '../../types/student';
+import {
+  StudentRecord,
+  StudentStatus,
+  ActivityItem,
+  STANDARD_STUDENT_STATUSES,
+  ALL_STUDENT_STATUSES,
+  StatusHistoryEntry,
+} from '../../types/student';
 import { DEFAULT_COUNSELLORS } from '../../data/counsellors';
-import { updateStudent, resendStudentNotification } from '../../services/studentService';
+import {
+  updateStudent,
+  resendStudentNotification,
+  updateStudentStatusWithNotification,
+  markEnquiryAsRead,
+} from '../../services/studentService';
 import { downloadStudentPDF } from '../../services/pdfService';
 import { exportStudentsToExcel } from '../../services/spreadsheetService';
 import { useAuth } from '../../context/AuthContext';
@@ -37,19 +51,6 @@ interface StudentDetailModalProps {
   onStudentUpdated: (updated: StudentRecord) => void;
 }
 
-const ALL_STATUSES: StudentStatus[] = [
-  'New Enquiry',
-  'Contacted',
-  'Counselling Completed',
-  'University Shortlisted',
-  'Documents Pending',
-  'Application Started',
-  'Application Submitted',
-  'Visa Processing',
-  'Visa Granted',
-  'Closed',
-];
-
 export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   student,
   isOpen,
@@ -57,11 +58,16 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
   onStudentUpdated,
 }) => {
   const { currentUser } = useAuth();
-  const staffName = currentUser?.displayName || 'Counsellor';
+  const staffName = currentUser?.displayName || 'Pathfinder Admissions Staff';
 
   // Management State
-  const [activeTab, setActiveTab] = useState<'profile' | 'management' | 'timeline'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'management' | 'history' | 'timeline'>('profile');
   const [currentStatus, setCurrentStatus] = useState<StudentStatus>(student.status);
+  const [selectedStatus, setSelectedStatus] = useState<StudentStatus>(student.status);
+  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [sendEmailToStudent, setSendEmailToStudent] = useState<boolean>(true);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
+
   const [assignedCounsellorId, setAssignedCounsellorId] = useState<string>(student.assignedCounsellorId || '');
   const [followUpDate, setFollowUpDate] = useState<string>(student.followUpDate || '');
   const [counsellingNotes, setCounsellingNotes] = useState<string>(student.counsellingNotes || '');
@@ -115,23 +121,76 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
         showFeedback(result.message);
         onStudentUpdated({
           ...student,
+          notificationStatus: 'sent',
+          notificationSentAt: new Date().toISOString(),
+          notificationError: undefined,
           emailStatus: 'SENT',
           emailSentAt: new Date().toISOString(),
+          emailError: undefined,
         });
       } else {
         showFeedback(result.message);
       }
     } catch (err) {
-      console.error(err);
-      showFeedback('Resend notification failed');
+      const errMsg = err instanceof Error ? err.message : 'Resend notification failed';
+      console.error('Email resend error:', err);
+      showFeedback(`Resend failed: ${errMsg}`);
+      onStudentUpdated({
+        ...student,
+        notificationStatus: 'failed',
+        notificationError: errMsg,
+        emailStatus: 'EMAIL_FAILED',
+        emailError: errMsg,
+      });
     } finally {
       setIsResendingEmail(false);
     }
   };
 
-  // 1. Change Status
+  // Toggle read/unread state in Firestore
+  const handleToggleReadState = async () => {
+    if (!student.id) return;
+    const isCurrentlyRead = student.unread === false;
+    const targetIsRead = !isCurrentlyRead;
+    await markEnquiryAsRead(student.id, targetIsRead);
+    const updated: StudentRecord = { ...student, unread: !targetIsRead };
+    onStudentUpdated(updated);
+    showFeedback(targetIsRead ? 'Enquiry marked as read' : 'Enquiry marked as unread');
+  };
+
+  // Two-way Status Management & Student Email Notification
+  const handleUpdateStatusAndNotify = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!student.id) return;
+    setIsUpdatingStatus(true);
+    try {
+      const result = await updateStudentStatusWithNotification({
+        student,
+        newStatus: selectedStatus,
+        staffMessage: statusMessage,
+        sendEmailToStudent,
+        staffUser: {
+          name: staffName,
+          email: currentUser?.email,
+        },
+      });
+
+      setCurrentStatus(selectedStatus);
+      setStatusMessage('');
+      onStudentUpdated(result.updatedStudent);
+      showFeedback(result.message);
+    } catch (err: unknown) {
+      console.error('Status update failed:', err);
+      showFeedback('Failed to update status.');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // 1. Change Status (Quick update)
   const handleStatusChange = async (newStatus: StudentStatus) => {
     if (!student.id) return;
+    setSelectedStatus(newStatus);
     setIsSaving(true);
     try {
       const activity: Omit<ActivityItem, 'id' | 'date'> = {
@@ -353,27 +412,37 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     }
   };
 
-  const getStatusBadgeColor = (status: StudentStatus) => {
+  const getStatusBadgeColor = (status: StudentStatus | string) => {
     switch (status) {
+      case 'NEW ENQUIRY':
+      case 'New Enquiry':
       case 'New':
         return 'bg-blue-100 text-[#0066A6] border-blue-200';
+      case 'UNDER REVIEW':
       case 'Contacted':
         return 'bg-amber-100 text-amber-800 border-amber-200';
-      case 'Counselling Scheduled':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'Counselled':
-        return 'bg-indigo-100 text-indigo-800 border-indigo-200';
-      case 'University Shortlisted':
-        return 'bg-cyan-100 text-cyan-800 border-cyan-200';
+      case 'DOCUMENTS REQUIRED':
       case 'Documents Pending':
         return 'bg-orange-100 text-[#F5821F] border-orange-200';
+      case 'APPLICATION IN PROGRESS':
       case 'Application Started':
       case 'Application Submitted':
-        return 'bg-teal-100 text-teal-800 border-teal-200';
-      case 'Visa Processing':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'OFFER RECEIVED':
+      case 'University Shortlisted':
+        return 'bg-cyan-100 text-cyan-800 border-cyan-200';
+      case 'VISA PROCESSING':
         return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'Visa Granted':
+      case 'VISA GRANTED':
         return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      case 'COMPLETED':
+      case 'Counselled':
+      case 'Counselling Completed':
+        return 'bg-teal-100 text-teal-800 border-teal-200';
+      case 'ON HOLD':
+        return 'bg-slate-200 text-slate-800 border-slate-300';
+      case 'NOT ELIGIBLE':
+        return 'bg-rose-100 text-rose-800 border-rose-200';
       case 'Closed':
         return 'bg-slate-100 text-slate-700 border-slate-200';
       default:
@@ -454,6 +523,25 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             </div>
 
             {/* Quick Actions */}
+            {student.id && (
+              <button
+                type="button"
+                id="btn-modal-toggle-read"
+                onClick={handleToggleReadState}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                  student.unread !== false
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30'
+                    : 'bg-white/10 text-slate-300 border-white/20 hover:bg-white/20'
+                }`}
+                title={student.unread !== false ? 'Mark this enquiry as read' : 'Mark this enquiry as unread'}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">
+                  {student.unread !== false ? 'Mark as Read' : 'Read'}
+                </span>
+              </button>
+            )}
+
             <button
               type="button"
               id="btn-modal-download-pdf"
@@ -490,7 +578,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
 
         {/* Tab Navigation */}
         <div className="bg-slate-100 px-6 py-2 border-b border-slate-200 flex items-center justify-between shrink-0">
-          <div className="flex gap-2 text-xs font-bold">
+          <div className="flex flex-wrap gap-2 text-xs font-bold">
             <button
               type="button"
               id="tab-profile"
@@ -514,6 +602,24 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
               }`}
             >
               Counselling Management
+            </button>
+            <button
+              type="button"
+              id="tab-history"
+              onClick={() => setActiveTab('history')}
+              className={`px-4 py-2 rounded-lg transition-all flex items-center gap-1.5 ${
+                activeTab === 'history'
+                  ? 'bg-white text-[#0066A6] shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Status &amp; Notification History</span>
+              {student.statusHistory && student.statusHistory.length > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 text-[10px] rounded-full bg-blue-100 text-[#0066A6]">
+                  {student.statusHistory.length}
+                </span>
+              )}
             </button>
             <button
               type="button"
@@ -544,35 +650,71 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             <div className="space-y-5 animate-fadeIn">
               {/* Submission & Email Notification Status Banner */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold shrink-0 ${
-                    student.emailStatus === 'SENT' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'
-                  }`}>
-                    {student.emailStatus === 'SENT' ? <MailCheck className="w-5 h-5" /> : <RefreshCw className="w-5 h-5" />}
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold shrink-0 mt-0.5 ${
+                      student.notificationStatus === 'sent' || student.emailStatus === 'SENT'
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : student.notificationStatus === 'pending' || student.emailStatus === 'PENDING'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {student.notificationStatus === 'sent' || student.emailStatus === 'SENT' ? (
+                      <MailCheck className="w-5 h-5" />
+                    ) : student.notificationStatus === 'pending' || student.emailStatus === 'PENDING' ? (
+                      <Clock className="w-5 h-5 animate-pulse" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 text-amber-700" />
+                    )}
                   </div>
 
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-800">Email Notification Status:</span>
-                      {student.emailStatus === 'SENT' ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-bold text-slate-800">Staff Notification Status:</span>
+                      {student.notificationStatus === 'sent' || student.emailStatus === 'SENT' ? (
                         <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          ✓ Notification Sent to Pathfinder Admissions
+                          ✓ Notification Delivered via Resend
+                        </span>
+                      ) : student.notificationStatus === 'pending' || student.emailStatus === 'PENDING' ? (
+                        <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                          ◷ Notification Pending
                         </span>
                       ) : (
                         <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-300">
-                          ⚠ Delivery Pending / Failed
+                          ⚠ Notification Delivery Failed
+                        </span>
+                      )}
+                      {(student.notificationSentAt || student.emailSentAt) && (
+                        <span className="text-[11px] text-slate-500">
+                          ({new Date(student.notificationSentAt || student.emailSentAt || '').toLocaleString('en-GB')})
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      {student.emailStatus === 'SENT'
-                        ? 'Dispatched to authorized admissions email inbox'
-                        : 'Notification could not be dispatched or was queued. Click Resend below.'}
+                    <p className="text-[11px] text-slate-600 mt-1">
+                      Recipients:{' '}
+                      <span className="font-mono text-slate-700">
+                        {student.emailRecipient ||
+                          (student.notificationRecipients && student.notificationRecipients.length > 0
+                            ? student.notificationRecipients.join(', ')
+                            : 'admission@pathfinders.com.np, bdm@pathfinders.com.np, director@pathfinders.com.np, australia@pathfinders.com.np, info@pathfinders.com.np, uk@pathfinders.com.np')}
+                      </span>
                     </p>
+                    {(student.notificationError || student.emailError) && (
+                      <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-md text-[11px] text-rose-800">
+                        <strong className="block text-rose-900 font-semibold mb-0.5">Exact Resend Error Diagnostic:</strong>
+                        <span className="font-mono">{student.notificationError || student.emailError}</span>
+                        {String(student.notificationError || student.emailError).includes('only send testing emails to your own email address') && (
+                          <div className="mt-1 text-slate-600 text-[10.5px]">
+                            💡 <em>While <strong>pathfinders.com.np</strong> domain verification is pending on Resend, Resend's free test mode only allows sending to the Resend account owner's email address. Set that email in <code>STAFF_NOTIFICATION_EMAILS</code> or complete domain DNS verification at resend.com/domains.</em>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-auto">
+                <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                   <button
                     type="button"
                     onClick={handleResendEmail}
@@ -905,61 +1047,135 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             <div className="space-y-6 animate-fadeIn">
               {/* Management Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* 1. Status & Counsellor Assignment */}
+                {/* 1. Status Management & Email Notification */}
                 <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-slate-100">
-                    <ShieldCheck className="w-4 h-4 text-[#0066A6]" />
-                    Status &amp; Counsellor Assignment
-                  </h2>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Change Student Status
-                    </label>
-                    <select
-                      value={currentStatus}
-                      onChange={(e) => handleStatusChange(e.target.value as StudentStatus)}
-                      disabled={isSaving}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-hidden focus:border-[#0066A6]"
-                    >
-                      {ALL_STATUSES.map((st) => (
-                        <option key={st} value={st}>
-                          {st}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                    <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wide flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-[#0066A6]" />
+                      Status Management &amp; Notification
+                    </h2>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getStatusBadgeColor(currentStatus)}`}>
+                      Current: {currentStatus}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Handling Staff Member
-                    </label>
-                    <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
-                      <UserCheck className="w-4 h-4 text-[#0066A6]" />
-                      <span className="font-semibold text-slate-800">Pathfinder Admissions Staff</span>
-                      <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 font-bold px-1.5 py-0.5 rounded ml-auto">Authorized</span>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Set Follow-up Date &amp; Time
-                    </label>
-                    <div className="flex gap-2">
-                      <input
-                        type="datetime-local"
-                        value={followUpDate}
-                        onChange={(e) => setFollowUpDate(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-hidden focus:border-[#0066A6]"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSaveFollowUp}
-                        disabled={isSaving || !followUpDate}
-                        className="px-4 py-2 rounded-lg bg-[#0066A6] text-white text-xs font-bold shrink-0 hover:bg-[#004F82] disabled:opacity-50"
+                  <form onSubmit={handleUpdateStatusAndNotify} className="space-y-3.5">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Select New Application Status
+                      </label>
+                      <select
+                        value={selectedStatus}
+                        onChange={(e) => setSelectedStatus(e.target.value as StudentStatus)}
+                        disabled={isUpdatingStatus}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-hidden focus:border-[#0066A6] bg-white shadow-2xs"
                       >
-                        Set
-                      </button>
+                        <optgroup label="Standard Pathfinder Statuses">
+                          {STANDARD_STUDENT_STATUSES.map((st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          ))}
+                        </optgroup>
+                        {ALL_STUDENT_STATUSES.filter((st) => !STANDARD_STUDENT_STATUSES.includes(st)).length > 0 && (
+                          <optgroup label="Legacy / Previous Statuses">
+                            {ALL_STUDENT_STATUSES.filter((st) => !STANDARD_STUDENT_STATUSES.includes(st)).map((st) => (
+                              <option key={st} value={st}>
+                                {st}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Message / Remark for Student (Included in status email)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={statusMessage}
+                        onChange={(e) => setStatusMessage(e.target.value)}
+                        placeholder="e.g. Please provide your updated academic transcript and passport copy."
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-[#0066A6]"
+                      />
+                    </div>
+
+                    {/* Requirement 5: Checkbox toggle for sending status update email */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        id="chk-send-email-to-student"
+                        checked={sendEmailToStudent}
+                        onChange={(e) => setSendEmailToStudent(e.target.checked)}
+                        className="w-4 h-4 rounded text-[#0066A6] focus:ring-[#0066A6] mt-0.5 cursor-pointer"
+                      />
+                      <label htmlFor="chk-send-email-to-student" className="text-xs text-slate-700 font-medium cursor-pointer">
+                        <span className="font-bold text-slate-900 block">Send status update email to student</span>
+                        <span className="text-[11px] text-slate-500">
+                          Dispatches update email to <strong>{student.email || 'student email'}</strong> via Resend.
+                        </span>
+                      </label>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isUpdatingStatus}
+                      className="w-full py-2.5 rounded-lg bg-[#0066A6] hover:bg-[#004F82] text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                      {isUpdatingStatus ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Updating Status &amp; Dispatching...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>
+                            {sendEmailToStudent
+                              ? `Update Status to "${selectedStatus}" & Send Email`
+                              : `Update Status to "${selectedStatus}" (No Email)`}
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+
+                  <div className="pt-3 border-t border-slate-100 space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Handling Staff Member
+                      </label>
+                      <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+                        <UserCheck className="w-4 h-4 text-[#0066A6]" />
+                        <span className="font-semibold text-slate-800">{staffName}</span>
+                        <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 font-bold px-1.5 py-0.5 rounded ml-auto">
+                          Authorized
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Set Follow-up Date &amp; Time
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="datetime-local"
+                          value={followUpDate}
+                          onChange={(e) => setFollowUpDate(e.target.value)}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 focus:outline-hidden focus:border-[#0066A6]"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleSaveFollowUp}
+                          disabled={isSaving || !followUpDate}
+                          className="px-4 py-2 rounded-lg bg-slate-800 text-white text-xs font-bold shrink-0 hover:bg-slate-900 disabled:opacity-50"
+                        >
+                          Set
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1096,7 +1312,153 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: ACTIVITY TIMELINE REQUIRED BY PROMPT */}
+          {/* TAB 3: CHRONOLOGICAL STATUS & NOTIFICATION HISTORY */}
+          {activeTab === 'history' && (
+            <div id="student-status-history-panel" className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs animate-fadeIn space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-[#0066A6]" />
+                    Status &amp; Notification History
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Chronological audit record of application status changes and student email notification delivery.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${getStatusBadgeColor(currentStatus)}`}>
+                    Current Status: {currentStatus}
+                  </span>
+                </div>
+              </div>
+
+              {student.statusHistory && student.statusHistory.length > 0 ? (
+                <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+                  {student.statusHistory.map((entry, idx) => {
+                    const isSent = entry.emailNotificationStatus === 'sent';
+                    const isFailed = entry.emailNotificationStatus === 'failed';
+                    const isSandboxRestricted = entry.emailNotificationStatus === 'sandbox_restricted';
+                    const isNotRequested = entry.emailNotificationStatus === 'not_requested';
+                    const formattedDate = entry.changedAt
+                      ? new Date(entry.changedAt).toLocaleString('en-GB', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'N/A';
+
+                    return (
+                      <div key={idx} className="relative group">
+                        {/* Timeline dot */}
+                        <div
+                          className={`absolute -left-6 top-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center shadow-xs ${
+                            isSent
+                              ? 'bg-emerald-500'
+                              : isSandboxRestricted
+                              ? 'bg-blue-500'
+                              : isFailed
+                              ? 'bg-rose-500'
+                              : 'bg-[#0066A6]'
+                          }`}
+                        >
+                          <div className="w-1.5 h-1.5 rounded-full bg-white" />
+                        </div>
+
+                        {/* Content Card */}
+                        <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-4.5 hover:border-slate-300 transition-colors space-y-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-semibold text-slate-400">
+                                {entry.previousStatus || 'Initial'}
+                              </span>
+                              <span className="text-xs text-slate-300 font-bold">&rarr;</span>
+                              <span
+                                className={`text-xs font-black px-2.5 py-0.5 rounded-md border ${getStatusBadgeColor(
+                                  entry.newStatus as StudentStatus
+                                )}`}
+                              >
+                                {entry.newStatus}
+                              </span>
+                            </div>
+
+                            <span className="text-[11px] font-semibold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
+                              {formattedDate}
+                            </span>
+                          </div>
+
+                          <div className="text-xs text-slate-600">
+                            Changed by: <strong className="text-slate-800">{entry.changedBy || 'Staff'}</strong>
+                            {entry.changedByEmail && (
+                              <span className="text-slate-400 ml-1">({entry.changedByEmail})</span>
+                            )}
+                          </div>
+
+                          {/* Staff message if provided */}
+                          {entry.message && (
+                            <div className="p-3 bg-white border-l-3 border-[#F5821F] rounded-r-lg text-xs text-slate-700 shadow-2xs">
+                              <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block mb-0.5">
+                                Staff Message to Student:
+                              </span>
+                              <p className="whitespace-pre-wrap">{entry.message}</p>
+                            </div>
+                          )}
+
+                          {/* Email notification outcome badge */}
+                          <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <span className="text-slate-500 text-[11px]">Student Email Dispatch:</span>
+                            {isSent ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                                <MailCheck className="w-3.5 h-3.5" />
+                                Email Successfully Dispatched to Student
+                              </span>
+                            ) : isSandboxRestricted ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200"
+                                title="Outbound email to student address was withheld while Resend is in sandbox testing mode. Once pathfinders.com.np domain verification completes, student emails will dispatch automatically."
+                              >
+                                <Clock className="w-3.5 h-3.5 text-blue-600" />
+                                Paused: Resend Sandbox Mode (Domain Pending)
+                              </span>
+                            ) : isFailed ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200"
+                                title={entry.emailNotificationError}
+                              >
+                                <AlertTriangle className="w-3.5 h-3.5" />
+                                Email Failed: {entry.emailNotificationError || 'Delivery error'}
+                              </span>
+                            ) : isNotRequested ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                <Mail className="w-3.5 h-3.5" />
+                                Email Not Requested
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                <Clock className="w-3.5 h-3.5" />
+                                Pending Dispatch
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="p-10 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  <Clock className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                  <p className="text-xs font-semibold text-slate-700">No status changes recorded yet.</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    When you update the application status in the &quot;Counselling Management&quot; tab, chronological records will appear here.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 4: ACTIVITY TIMELINE REQUIRED BY PROMPT */}
           {activeTab === 'timeline' && (
             <div id="student-activity-timeline" className="bg-white border border-slate-200 rounded-xl p-6 shadow-xs animate-fadeIn">
               <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">

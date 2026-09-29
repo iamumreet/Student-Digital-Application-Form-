@@ -1,6 +1,30 @@
 export type EducationLevel = 'SEE' | '+2 / CTEVT / A-Level' | 'Bachelor' | 'Master';
 
+/**
+ * Standard Flexible Student Application Statuses:
+ * - NEW ENQUIRY
+ * - UNDER REVIEW
+ * - DOCUMENTS REQUIRED
+ * - APPLICATION IN PROGRESS
+ * - OFFER RECEIVED
+ * - VISA PROCESSING
+ * - VISA GRANTED
+ * - COMPLETED
+ * - ON HOLD
+ * - NOT ELIGIBLE
+ */
 export type StudentStatus =
+  | 'NEW ENQUIRY'
+  | 'UNDER REVIEW'
+  | 'DOCUMENTS REQUIRED'
+  | 'APPLICATION IN PROGRESS'
+  | 'OFFER RECEIVED'
+  | 'VISA PROCESSING'
+  | 'VISA GRANTED'
+  | 'COMPLETED'
+  | 'ON HOLD'
+  | 'NOT ELIGIBLE'
+  // Backward compatibility with previous records:
   | 'New Enquiry'
   | 'Contacted'
   | 'Counselling Completed'
@@ -8,16 +32,26 @@ export type StudentStatus =
   | 'Documents Pending'
   | 'Application Started'
   | 'Application Submitted'
-  | 'Visa Processing'
-  | 'Visa Granted'
   | 'Closed'
-  // Backward compatibility:
-  | 'NEW ENQUIRY'
   | 'New'
   | 'Counselling Scheduled'
   | 'Counselled';
 
+export const STANDARD_STUDENT_STATUSES: StudentStatus[] = [
+  'NEW ENQUIRY',
+  'UNDER REVIEW',
+  'DOCUMENTS REQUIRED',
+  'APPLICATION IN PROGRESS',
+  'OFFER RECEIVED',
+  'VISA PROCESSING',
+  'VISA GRANTED',
+  'COMPLETED',
+  'ON HOLD',
+  'NOT ELIGIBLE',
+];
+
 export const ALL_STUDENT_STATUSES: StudentStatus[] = [
+  ...STANDARD_STUDENT_STATUSES,
   'New Enquiry',
   'Contacted',
   'Counselling Completed',
@@ -25,8 +59,6 @@ export const ALL_STUDENT_STATUSES: StudentStatus[] = [
   'Documents Pending',
   'Application Started',
   'Application Submitted',
-  'Visa Processing',
-  'Visa Granted',
   'Closed',
 ];
 
@@ -53,6 +85,21 @@ export interface ActivityItem {
   description: string;
   author: string;
   type: 'submission' | 'status_change' | 'assignment' | 'contact' | 'counselling' | 'followup' | 'note' | 'email' | 'pdf';
+}
+
+/**
+ * Two-way notification status history entry for student records
+ */
+export interface StatusHistoryEntry {
+  previousStatus: StudentStatus | string;
+  newStatus: StudentStatus | string;
+  message?: string;
+  changedBy: string;
+  changedByEmail?: string;
+  changedAt: string; // ISO string
+  emailNotificationRequested: boolean;
+  emailNotificationStatus: 'sent' | 'failed' | 'not_requested' | 'pending' | 'sandbox_restricted';
+  emailNotificationError?: string;
 }
 
 export interface StudentRecord {
@@ -99,13 +146,21 @@ export interface StudentRecord {
   intake?: string;
   activityHistory: ActivityItem[];
 
-  // Production workflow fields
-  pdfUrl?: string; // Generated PDF reference/data URI
-  pdfGeneratedAt?: string;
+  // Two-way Notification & Production workflow fields
+  unread?: boolean; // In-dashboard notification system: true when unread by staff
+  notificationStatus?: 'sent' | 'failed' | 'pending';
+  staffNotificationStatus?: 'sent' | 'failed' | 'pending';
+  studentNotificationStatus?: 'sent' | 'failed' | 'not_requested' | 'pending' | 'sandbox_restricted';
+  statusHistory?: StatusHistoryEntry[];
+  notificationSentAt?: string;
+  notificationRecipients?: string[];
+  notificationError?: string;
   emailStatus?: EmailStatus;
   emailSentAt?: string;
   emailRecipient?: string;
   emailError?: string;
+  pdfUrl?: string; // Generated PDF reference/data URI
+  pdfGeneratedAt?: string;
   spreadsheetSynced?: boolean;
   spreadsheetSyncedAt?: string;
   createdAt?: string;

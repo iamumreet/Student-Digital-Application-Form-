@@ -1,17 +1,23 @@
 import React from 'react';
-import { Compass, ShieldCheck, UserCheck, LogIn, ExternalLink, FileText, Lock, Phone } from 'lucide-react';
+import { Compass, ShieldCheck, UserCheck, LogIn, ExternalLink, FileText, Lock, Phone, Search } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { NotificationBell } from '../dashboard/NotificationBell';
+import { StudentRecord } from '../../types/student';
 
 interface NavbarProps {
   currentView: 'student' | 'dashboard';
   onSwitchView: (view: 'student' | 'dashboard') => void;
   onOpenAuthModal: () => void;
+  onOpenStatusCheck?: () => void;
+  onSelectStudent?: (student: StudentRecord) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   currentView,
   onSwitchView,
   onOpenAuthModal,
+  onOpenStatusCheck,
+  onSelectStudent,
 }) => {
   const { currentUser, isStaff, logout } = useAuth();
 
@@ -64,6 +70,20 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="hidden sm:inline">Student</span> Form
           </button>
 
+          {/* Student Status Check Self-Service */}
+          {onOpenStatusCheck && (
+            <button
+              type="button"
+              id="nav-btn-check-status"
+              onClick={onOpenStatusCheck}
+              className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 text-slate-700 hover:text-slate-900 hover:bg-slate-100 border border-slate-200"
+              title="Track your application status"
+            >
+              <Search className="w-3.5 h-3.5 text-[#F5821F]" />
+              <span>Check Status</span>
+            </button>
+          )}
+
           {/* View Switch: Staff Portal / Login */}
           <button
             type="button"
@@ -88,10 +108,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
           </button>
 
-          {/* If staff user is logged in, show authorized role badge & sign out */}
+          {/* If staff user is logged in, show authorized role badge, notification bell, & sign out */}
           {isStaff && (
-            <div className="hidden md:flex items-center gap-2 pl-2 border-l border-slate-200">
-              <div className="text-left">
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+              <div className="hidden sm:block text-left">
                 <span className="text-xs font-bold text-slate-800 block leading-tight">
                   Authorized Staff
                 </span>
@@ -99,11 +119,20 @@ export const Navbar: React.FC<NavbarProps> = ({
                   Portal Access
                 </span>
               </div>
+
+              {/* Clearly visible notification Bell icon: next to Authorized Staff and before Sign Out */}
+              <NotificationBell
+                theme="light"
+                onSelectStudent={onSelectStudent}
+                onViewAllApplications={() => onSwitchView('dashboard')}
+              />
+
               <button
                 type="button"
+                id="nav-btn-staff-sign-out"
                 onClick={logout}
-                className="text-xs text-slate-400 hover:text-slate-700 ml-1 font-medium transition-colors"
-                title="Sign out"
+                className="text-xs text-slate-400 hover:text-slate-700 ml-1 font-medium transition-colors cursor-pointer"
+                title="Sign out of Staff Portal"
               >
                 Sign Out
               </button>

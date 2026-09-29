@@ -9,11 +9,15 @@ import { Navbar } from './components/common/Navbar';
 import { StudentForm } from './components/public/StudentForm';
 import { CounsellorDashboard } from './components/dashboard/CounsellorDashboard';
 import { AuthModal } from './components/dashboard/AuthModal';
+import { StudentStatusModal } from './components/public/StudentStatusModal';
+import { StudentRecord } from './types/student';
 
 function MainApp() {
   const { isStaff, loading: authLoading } = useAuth();
   const [currentView, setCurrentView] = useState<'student' | 'dashboard'>('student');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [isStatusModalOpen, setIsStatusModalOpen] = useState<boolean>(false);
+  const [selectedStudentForModal, setSelectedStudentForModal] = useState<StudentRecord | null>(null);
 
   // Automatically transition to dashboard when staff signs in
   useEffect(() => {
@@ -21,6 +25,26 @@ function MainApp() {
       setIsAuthModalOpen(false);
     }
   }, [isStaff, currentView]);
+
+  // Support direct linking from staff notification email (e.g. ?view=staff&leadId=...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash;
+    const isStaffRequested =
+      params.get('view') === 'staff' ||
+      params.get('view') === 'dashboard' ||
+      params.has('leadId') ||
+      hash.includes('staff-portal') ||
+      hash.includes('counsellor');
+
+    if (isStaffRequested) {
+      if (isStaff) {
+        setCurrentView('dashboard');
+      } else if (!authLoading) {
+        setIsAuthModalOpen(true);
+      }
+    }
+  }, [isStaff, authLoading]);
 
   const handleSwitchView = (view: 'student' | 'dashboard') => {
     if (view === 'dashboard' && !isStaff) {
@@ -38,6 +62,11 @@ function MainApp() {
         currentView={currentView}
         onSwitchView={handleSwitchView}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenStatusCheck={() => setIsStatusModalOpen(true)}
+        onSelectStudent={(student) => {
+          setCurrentView('dashboard');
+          setSelectedStudentForModal(student);
+        }}
       />
 
       {/* Main View Area */}
@@ -45,7 +74,11 @@ function MainApp() {
         {currentView === 'student' ? (
           <StudentForm />
         ) : isStaff ? (
-          <CounsellorDashboard onSwitchToPublicForm={() => handleSwitchView('student')} />
+          <CounsellorDashboard
+            onSwitchToPublicForm={() => handleSwitchView('student')}
+            externalSelectedStudent={selectedStudentForModal}
+            onClearExternalSelectedStudent={() => setSelectedStudentForModal(null)}
+          />
         ) : (
           <div className="max-w-md mx-auto my-20 p-8 bg-white border border-slate-200 rounded-2xl shadow-sm text-center">
             <h2 className="text-xl font-bold text-slate-900">Staff Authentication Required</h2>
@@ -62,6 +95,12 @@ function MainApp() {
           </div>
         )}
       </main>
+
+      {/* Student Self-Service Application Status Modal */}
+      <StudentStatusModal
+        isOpen={isStatusModalOpen}
+        onClose={() => setIsStatusModalOpen(false)}
+      />
 
       {/* Staff Login Modal */}
       <AuthModal

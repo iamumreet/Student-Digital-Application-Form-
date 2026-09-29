@@ -34,6 +34,7 @@ import {
   HelpCircle,
   Printer,
   ChevronDown,
+  MailCheck,
 } from 'lucide-react';
 import { StudentRecord, StudentStatus, ALL_STUDENT_STATUSES } from '../../types/student';
 import {
@@ -101,6 +102,7 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { id: 'questionType', label: 'Question Type', minWidth: 180, category: 'preference' },
   { id: 'source', label: 'How They Know About Pathfinder', minWidth: 180, category: 'preference' },
   { id: 'status', label: 'Status', minWidth: 165, category: 'management' },
+  { id: 'emailNotification', label: 'Email Status', minWidth: 140, category: 'management' },
   { id: 'followUpDate', label: 'Follow-up Date', minWidth: 140, category: 'management' },
   { id: 'pdf', label: 'PDF', minWidth: 110, category: 'management' },
   { id: 'notes', label: 'Notes', minWidth: 180, category: 'management' },
@@ -1131,6 +1133,11 @@ export const ResponseSpreadsheetView: React.FC<ResponseSpreadsheetViewProps> = (
                   Status
                 </th>
               )}
+              {visibleColumnIds.has('emailNotification') && (
+                <th className="py-2.5 px-3 border-r border-slate-200 bg-slate-50 min-w-[140px]">
+                  Email Status
+                </th>
+              )}
               {visibleColumnIds.has('followUpDate') && (
                 <th className="py-2.5 px-3 border-r border-slate-200 bg-slate-50 min-w-[140px]">
                   Follow-up Date
@@ -1232,7 +1239,11 @@ export const ResponseSpreadsheetView: React.FC<ResponseSpreadsheetViewProps> = (
                 return (
                   <tr
                     key={student.id || student.leadId}
-                    className="hover:bg-blue-50/40 transition-colors group cursor-pointer"
+                    className={`transition-colors group cursor-pointer ${
+                      student.unread === true
+                        ? 'bg-amber-50/30 hover:bg-amber-100/40'
+                        : 'hover:bg-blue-50/40'
+                    }`}
                     onClick={(e) => {
                       // Avoid opening when clicking directly on interactive inputs
                       const target = e.target as HTMLElement;
@@ -1271,9 +1282,19 @@ export const ResponseSpreadsheetView: React.FC<ResponseSpreadsheetViewProps> = (
                     {/* STICKY COLUMN 3: Lead ID */}
                     {visibleColumnIds.has('leadId') && (
                       <td className="py-2 px-3 border-r border-slate-200 bg-white group-hover:bg-blue-50/60 font-mono font-bold text-[#0066A6] whitespace-nowrap sticky left-48 z-10">
-                        <span className="bg-blue-50 text-[#0066A6] px-2 py-0.5 rounded border border-blue-200">
-                          {student.leadId}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="bg-blue-50 text-[#0066A6] px-2 py-0.5 rounded border border-blue-200">
+                            {student.leadId}
+                          </span>
+                          {student.unread === true && (
+                            <span
+                              className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-[#F5821F] text-white shadow-2xs shrink-0 animate-pulse"
+                              title="New unread application"
+                            >
+                              NEW
+                            </span>
+                          )}
+                        </div>
                       </td>
                     )}
 
@@ -1542,6 +1563,39 @@ export const ResponseSpreadsheetView: React.FC<ResponseSpreadsheetViewProps> = (
                             </option>
                           ))}
                         </select>
+                      </td>
+                    )}
+
+                    {/* EMAIL NOTIFICATION STATUS */}
+                    {visibleColumnIds.has('emailNotification') && (
+                      <td className="py-2 px-3 border-r border-slate-200 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {student.notificationStatus === 'sent' || student.emailStatus === 'SENT' ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200"
+                            title={`Dispatched to: ${student.emailRecipient || (student.notificationRecipients && student.notificationRecipients.length > 0 ? student.notificationRecipients.join(', ') : 'Staff')}${student.notificationSentAt || student.emailSentAt ? ` at ${new Date(student.notificationSentAt || student.emailSentAt || '').toLocaleString()}` : ''}`}
+                          >
+                            <MailCheck className="w-3 h-3 text-emerald-600" />
+                            <span>Sent</span>
+                          </span>
+                        ) : student.notificationStatus === 'pending' || student.emailStatus === 'PENDING' ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200"
+                            title="Notification is queued or being processed"
+                          >
+                            <Clock className="w-3 h-3 text-blue-600 animate-pulse" />
+                            <span>Pending</span>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onSelectStudent(student)}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded border border-amber-300 transition-colors"
+                            title={student.notificationError || student.emailError || 'Email delivery failed. Click to view exact error and resend.'}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            <span>Failed</span>
+                          </button>
+                        )}
                       </td>
                     )}
 
