@@ -117,19 +117,37 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
     setIsResendingEmail(true);
     try {
       const result = await resendStudentNotification(student);
+      const recipients = result.recipients && result.recipients.length > 0 ? result.recipients : ['umreetkumar@gmail.com'];
+      const recipientStr = recipients.join(', ');
+
       if (result.success) {
+        const sentAt = result.sentAt || new Date().toISOString();
         showFeedback(result.message);
         onStudentUpdated({
           ...student,
           notificationStatus: 'sent',
-          notificationSentAt: new Date().toISOString(),
+          staffNotificationStatus: 'sent',
+          notificationSentAt: sentAt,
+          notificationRecipients: recipients,
           notificationError: undefined,
           emailStatus: 'SENT',
-          emailSentAt: new Date().toISOString(),
+          emailSentAt: sentAt,
+          emailRecipient: recipientStr,
           emailError: undefined,
         });
       } else {
-        showFeedback(result.message);
+        const errMsg = result.error || result.message || 'Unable to deliver email to umreetkumar@gmail.com';
+        showFeedback(`Resend failed: ${errMsg}`);
+        onStudentUpdated({
+          ...student,
+          notificationStatus: 'failed',
+          staffNotificationStatus: 'failed',
+          notificationRecipients: recipients,
+          notificationError: errMsg,
+          emailStatus: 'EMAIL_FAILED',
+          emailRecipient: recipientStr,
+          emailError: errMsg,
+        });
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Resend notification failed';
@@ -138,8 +156,11 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
       onStudentUpdated({
         ...student,
         notificationStatus: 'failed',
+        staffNotificationStatus: 'failed',
+        notificationRecipients: ['umreetkumar@gmail.com'],
         notificationError: errMsg,
         emailStatus: 'EMAIL_FAILED',
+        emailRecipient: 'umreetkumar@gmail.com',
         emailError: errMsg,
       });
     } finally {
@@ -674,7 +695,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                       <span className="text-xs font-bold text-slate-800">Staff Notification Status:</span>
                       {student.notificationStatus === 'sent' || student.emailStatus === 'SENT' ? (
                         <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                          ✓ Notification Delivered via Resend
+                          ✓ Notification Sent
                         </span>
                       ) : student.notificationStatus === 'pending' || student.emailStatus === 'PENDING' ? (
                         <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
@@ -697,16 +718,20 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                         {student.emailRecipient ||
                           (student.notificationRecipients && student.notificationRecipients.length > 0
                             ? student.notificationRecipients.join(', ')
-                            : 'admission@pathfinders.com.np, bdm@pathfinders.com.np, director@pathfinders.com.np, australia@pathfinders.com.np, info@pathfinders.com.np, uk@pathfinders.com.np, umreetkumar@gmail.com')}
+                            : 'umreetkumar@gmail.com')}
                       </span>
                     </p>
                     {(student.notificationError || student.emailError) && (
                       <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-md text-[11px] text-rose-800">
                         <strong className="block text-rose-900 font-semibold mb-0.5">Exact Resend Error Diagnostic:</strong>
-                        <span className="font-mono">{student.notificationError || student.emailError}</span>
+                        <span className="font-mono">
+                          {(student.notificationError || student.emailError) === 'Email service returned failure'
+                            ? 'Previous attempt failed before a detailed diagnostic was captured. Click "Resend Email" to dispatch to umreetkumar@gmail.com and view live delivery status.'
+                            : student.notificationError || student.emailError}
+                        </span>
                         {String(student.notificationError || student.emailError).includes('only send testing emails to your own email address') && (
                           <div className="mt-1 text-slate-600 text-[10.5px]">
-                            💡 <em>While <strong>pathfinders.com.np</strong> domain verification is pending on Resend, Resend's free test mode only allows sending to the Resend account owner's email address. Set that email in <code>STAFF_NOTIFICATION_EMAILS</code> or complete domain DNS verification at resend.com/domains.</em>
+                            💡 <em>Resend&apos;s sandbox mode restricts delivery to the Resend account owner&apos;s verified email unless a custom domain is verified at resend.com/domains (or configure a <code>RESEND_API_KEY</code> owned by <strong>umreetkumar@gmail.com</strong>).</em>
                           </div>
                         )}
                       </div>

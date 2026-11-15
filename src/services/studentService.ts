@@ -23,20 +23,12 @@ const SPREADSHEET_COLLECTION = 'response_spreadsheet_rows';
 /**
  * Default fallback admissions email derived from system configuration
  */
-export const DEFAULT_ADMISSIONS_EMAIL = 'admission@pathfinders.com.np';
+export const DEFAULT_ADMISSIONS_EMAIL = 'umreetkumar@gmail.com';
 
 /**
  * Official Pathfinder Staff Notification Recipients
  */
-export const DEFAULT_STAFF_NOTIFICATION_RECIPIENTS: string[] = [
-  'admission@pathfinders.com.np',
-  'bdm@pathfinders.com.np',
-  'director@pathfinders.com.np',
-  'australia@pathfinders.com.np',
-  'info@pathfinders.com.np',
-  'uk@pathfinders.com.np',
-  'umreetkumar@gmail.com',
-];
+export const DEFAULT_STAFF_NOTIFICATION_RECIPIENTS: string[] = ['umreetkumar@gmail.com'];
 
 /**
  * Recursively removes any undefined values from objects and arrays
@@ -313,25 +305,48 @@ export async function submitStudentWorkflow(
       }),
     });
 
-    const data = await response.json().catch(() => null);
+    const rawBody = await response.text().catch(() => '');
+    let data: Record<string, unknown> | null = null;
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody) as Record<string, unknown>;
+      } catch {
+        data = null;
+      }
+    }
+
+    if (Array.isArray(data?.recipients) && data.recipients.length > 0) {
+      notificationRecipients = data.recipients.map((r) => String(r));
+    }
 
     if (response.ok && data?.success) {
       emailStatus = 'SENT';
       notificationStatus = 'sent';
-      if (Array.isArray(data.recipients) && data.recipients.length > 0) {
-        notificationRecipients = data.recipients;
-      }
     } else {
       emailStatus = 'EMAIL_FAILED';
       notificationStatus = 'failed';
-      notificationError = data?.error || 'Email service returned failure';
+      const apiError = typeof data?.error === 'string' && data.error.trim() ? data.error.trim() : '';
+      const apiMessage = typeof data?.message === 'string' && data.message.trim() ? data.message.trim() : '';
+      if (apiError) {
+        notificationError = apiError;
+      } else if (apiMessage) {
+        notificationError = apiMessage;
+      } else if (!response.ok) {
+        const snippet = rawBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+        notificationError = `Email endpoint /api/notify-email returned HTTP ${response.status}${response.statusText ? ` (${response.statusText})` : ''}${snippet ? `: ${snippet}` : '. Ensure API routes and RESEND_API_KEY are configured.'}`;
+      } else {
+        notificationError = 'Email delivery was rejected by the Resend service without a detailed error payload.';
+      }
       console.warn('Email dispatch warning (student application safely preserved):', notificationError);
     }
   } catch (emailErr) {
     console.warn('Email dispatch service warning (student application safely preserved):', emailErr);
     emailStatus = 'EMAIL_FAILED';
     notificationStatus = 'failed';
-    notificationError = emailErr instanceof Error ? emailErr.message : 'Network error communicating with email API';
+    notificationError =
+      emailErr instanceof Error
+        ? `Network error contacting email API (/api/notify-email): ${emailErr.message}`
+        : 'Network error communicating with email API (/api/notify-email)';
   }
 
   studentRecord.notificationStatus = notificationStatus;
@@ -413,7 +428,11 @@ export async function submitStudentWorkflow(
 export async function resendStudentNotification(student: StudentRecord): Promise<{
   success: boolean;
   message: string;
+  error?: string;
+  recipients: string[];
+  sentAt?: string;
 }> {
+  let recipients: string[] = [...DEFAULT_STAFF_NOTIFICATION_RECIPIENTS];
   try {
     const response = await fetch('/api/resend-email', {
       method: 'POST',
@@ -431,33 +450,50 @@ export async function resendStudentNotification(student: StudentRecord): Promise
       }),
     });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || 'Server returned error response on email resend');
+    const rawBody = await response.text().catch(() => '');
+    let data: Record<string, unknown> = {};
+    if (rawBody) {
+      try {
+        data = JSON.parse(rawBody) as Record<string, unknown>;
+      } catch {
+        data = {};
+      }
     }
 
-    const now = new Date();
-    const recipients =
-      Array.isArray(data.recipients) && data.recipients.length > 0
-        ? data.recipients
-        : DEFAULT_STAFF_NOTIFICATION_RECIPIENTS;
+    if (Array.isArray(data.recipients) && data.recipients.length > 0) {
+      recipients = data.recipients.map((r) => String(r));
+    }
+
+    if (!response.ok || !data.success) {
+      const apiError = typeof data.error === 'string' && data.error.trim() ? data.error.trim() : '';
+      const snippet = rawBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+      const exactError =
+        apiError ||
+        (!response.ok
+          ? `Email endpoint /api/resend-email returned HTTP ${response.status}${response.statusText ? ` (${response.statusText})` : ''}${snippet ? `: ${snippet}` : '. Ensure API routes and RESEND_API_KEY are configured.'}`
+          : 'Resend API rejected the email delivery request.');
+      throw new Error(exactError);
+    }
+
+    const nowIso = typeof data.sentAt === 'string' ? data.sentAt : new Date().toISOString();
 
     if (student.id) {
       await updateStudent(
         student.id,
         cleanForFirestore({
           notificationStatus: 'sent',
-          notificationSentAt: now.toISOString(),
+          staffNotificationStatus: 'sent',
+          notificationSentAt: nowIso,
           notificationRecipients: recipients,
           notificationError: null,
           emailStatus: 'SENT',
-          emailSentAt: now.toISOString(),
+          emailSentAt: nowIso,
           emailRecipient: recipients.join(', '),
           emailError: null,
         }),
         {
           title: 'Notification email resent',
-          description: `Staff resent enquiry alert to ${recipients.length} authorized staff recipients.`,
+          description: `Staff resent enquiry alert to ${recipients.join(', ')}.`,
           author: 'Authorized Staff',
           type: 'email',
         }
@@ -466,13 +502,43 @@ export async function resendStudentNotification(student: StudentRecord): Promise
 
     return {
       success: true,
-      message: `Notification successfully resent to ${recipients.length} authorized staff inboxes`,
+      message: `Notification Sent to ${recipients.join(', ')}`,
+      recipients,
+      sentAt: nowIso,
     };
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Resend failed';
+    const msg = err instanceof Error ? err.message : 'Unable to reach /api/resend-email';
+
+    if (student.id) {
+      try {
+        await updateStudent(
+          student.id,
+          cleanForFirestore({
+            notificationStatus: 'failed',
+            staffNotificationStatus: 'failed',
+            notificationRecipients: recipients,
+            notificationError: msg,
+            emailStatus: 'EMAIL_FAILED',
+            emailRecipient: recipients.join(', '),
+            emailError: msg,
+          }),
+          {
+            title: 'Notification email resend failed',
+            description: `Attempted delivery to ${recipients.join(', ')} failed: ${msg}`,
+            author: 'Authorized Staff',
+            type: 'email',
+          }
+        );
+      } catch (updateErr) {
+        console.warn('Could not persist resend failure diagnostic to Firestore:', updateErr);
+      }
+    }
+
     return {
       success: false,
       message: msg,
+      error: msg,
+      recipients,
     };
   }
 }
