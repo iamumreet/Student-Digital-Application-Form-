@@ -14,13 +14,14 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
 /**
  * Official Pathfinder Staff Notification Recipients
- * Mandatory 6 staff accounts to receive new enquiry notifications:
+ * Mandatory staff accounts to receive new enquiry & resend notifications:
  * 1. admission@pathfinders.com.np
  * 2. bdm@pathfinders.com.np
  * 3. director@pathfinders.com.np
  * 4. australia@pathfinders.com.np
  * 5. info@pathfinders.com.np
  * 6. uk@pathfinders.com.np
+ * 7. umreetkumar@gmail.com
  */
 export const DEFAULT_STAFF_RECIPIENTS = [
   'admission@pathfinders.com.np',
@@ -29,31 +30,49 @@ export const DEFAULT_STAFF_RECIPIENTS = [
   'australia@pathfinders.com.np',
   'info@pathfinders.com.np',
   'uk@pathfinders.com.np',
+  'umreetkumar@gmail.com',
 ];
 
 /**
+ * Primary owner / Resend notification copy email
+ */
+export const PRIMARY_RESEND_EMAIL = 'umreetkumar@gmail.com';
+
+/**
  * Resolves the active notification recipients list from environment variables
- * (Vercel Production variables) or defaults to the official 6 Pathfinder staff accounts.
+ * (Vercel Production variables) or defaults to the official Pathfinder staff accounts,
+ * always ensuring umreetkumar@gmail.com is included.
  */
 export const getStaffRecipients = (): string[] => {
   const envRecipients = process.env.STAFF_NOTIFICATION_EMAILS;
+  let baseList: string[] = [...DEFAULT_STAFF_RECIPIENTS];
+
   if (envRecipients && envRecipients.trim()) {
     const parsed = envRecipients
       .split(',')
       .map((e) => e.trim().toLowerCase())
       .filter((e) => e.length > 0 && e.includes('@'));
     if (parsed.length > 0) {
-      return parsed;
+      baseList = parsed;
     }
   }
-  return [...DEFAULT_STAFF_RECIPIENTS];
+
+  const normalizedSet = new Set<string>(baseList.map((e) => e.trim().toLowerCase()));
+  normalizedSet.add(PRIMARY_RESEND_EMAIL);
+
+  const envOwner = process.env.OWNER_EMAIL?.trim().toLowerCase();
+  if (envOwner && envOwner.includes('@')) {
+    normalizedSet.add(envOwner);
+  }
+
+  return Array.from(normalizedSet);
 };
 
 /**
  * Fallback owner email for backward compatibility
  */
 const getOwnerEmail = (): string => {
-  return process.env.OWNER_EMAIL || 'admission@pathfinders.com.np';
+  return process.env.OWNER_EMAIL?.trim() || PRIMARY_RESEND_EMAIL;
 };
 
 /**
@@ -513,6 +532,8 @@ Tel: 01-5361805 | 01-5361853 | Email: info@pathfinders.com.np
  */
 async function sendEmailNotification(options: {
   recipients: string[];
+  bcc?: string[];
+  replyTo?: string | string[];
   subject: string;
   textBody: string;
   htmlBody: string;
@@ -526,6 +547,9 @@ async function sendEmailNotification(options: {
   isSandboxMode?: boolean;
 }> {
   const recipients = options.recipients;
+  const bccList = (options.bcc || [])
+    .map((e) => e.trim())
+    .filter((e) => e.length > 0 && e.includes('@') && !recipients.some((r) => r.toLowerCase() === e.toLowerCase()));
   const isStaffAlert = options.isStaffAlert !== false;
   const resendApiKeyExists = Boolean(process.env.RESEND_API_KEY?.trim());
   const resendApiKey = process.env.RESEND_API_KEY?.trim();
@@ -565,6 +589,22 @@ async function sendEmailNotification(options: {
     );
   }
 
+  const emailRequestBody: Record<string, unknown> = {
+    from: fromAddress,
+    to: recipients,
+    subject: options.subject,
+    text: options.textBody,
+    html: options.htmlBody,
+  };
+
+  if (bccList.length > 0) {
+    emailRequestBody.bcc = bccList;
+  }
+
+  if (options.replyTo) {
+    emailRequestBody.reply_to = options.replyTo;
+  }
+
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -572,13 +612,7 @@ async function sendEmailNotification(options: {
         Authorization: `Bearer ${resendApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        from: fromAddress,
-        to: recipients,
-        subject: options.subject,
-        text: options.textBody,
-        html: options.htmlBody,
-      }),
+      body: JSON.stringify(emailRequestBody),
     });
 
     // Log 4: The Resend API HTTP status
@@ -591,7 +625,7 @@ async function sendEmailNotification(options: {
       console.log(`[RESEND DIAGNOSTIC] 5. Exact Resend API message: Success (HTTP ${response.status})`);
       console.log(`[RESEND DIAGNOSTIC] 6. Returned Resend email ID: ${resendId}`);
       console.log(
-        `[EMAIL NOTIFICATION SENT] Dispatched via Resend API (id: ${resendId}) from "${fromAddress}" to ${recipients.length} recipients: ${recipients.join(', ')}`
+        `[EMAIL NOTIFICATION SENT] Dispatched via Resend API (id: ${resendId}) from "${fromAddress}" to ${recipients.length} recipients: ${recipients.join(', ')}${bccList.length > 0 ? ` (bcc: ${bccList.join(', ')})` : ''}`
       );
       return { success: true, provider: 'resend', deliveredTo: recipients, resendId };
     }
@@ -609,10 +643,42 @@ async function sendEmailNotification(options: {
     console.log(`[RESEND DIAGNOSTIC] 6. Returned Resend email ID: (None - request rejected)`);
 
     // Detect Sandbox limitation:
-    // "You can only send testing emails to your own email address (pariyaramrit429@gmail.com)..."
+    // "You can only send testing emails to your own email address (...)"
     const allowedEmailMatch = rawMsg.match(/only send testing emails to your own email address\s*\(([^)]+@[^)]+)\)/i);
-    const sandboxOwnerEmail = allowedEmailMatch?.[1]?.trim() || 'pariyaramrit429@gmail.com';
+    const sandboxOwnerEmail = allowedEmailMatch?.[1]?.trim() || getOwnerEmail();
     const isSandboxRestriction = Boolean(allowedEmailMatch) || rawMsg.includes('only send testing emails');
+
+    // If a direct student email in sandbox mode targeted the sandbox owner itself and failed only due to BCC:
+    if (
+      !isStaffAlert &&
+      isSandboxRestriction &&
+      bccList.length > 0 &&
+      recipients.some((r) => r.toLowerCase() === sandboxOwnerEmail.toLowerCase())
+    ) {
+      const retryBody: Record<string, unknown> = {
+        from: fromAddress,
+        to: [sandboxOwnerEmail],
+        subject: options.subject,
+        text: options.textBody,
+        html: options.htmlBody,
+      };
+      if (options.replyTo) {
+        retryBody.reply_to = options.replyTo;
+      }
+      const retryResponse = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${resendApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(retryBody),
+      });
+      if (retryResponse.ok) {
+        const retryData = (await retryResponse.json().catch(() => ({}))) as Record<string, unknown>;
+        const retryId = typeof retryData.id === 'string' ? retryData.id : 'unknown';
+        return { success: true, provider: 'resend-sandbox', deliveredTo: [sandboxOwnerEmail], resendId: retryId, isSandboxMode: true };
+      }
+    }
 
     // For staff admissions alerts, deliver to the verified sandbox email so alerts are never missed:
     if (isStaffAlert && sandboxOwnerEmail && !recipients.includes(sandboxOwnerEmail)) {
@@ -722,7 +788,7 @@ app.get('/api/diagnostic/email-test', async (req: Request, res: Response) => {
     error: testResult.error,
     isSandboxMode: testResult.isSandboxMode,
     sandboxGuidance: testResult.isSandboxMode
-      ? 'Custom domain pathfinders.com.np is not verified on Resend yet. While in sandbox mode, Resend delivers exclusively to verified account: pariyaramrit429@gmail.com'
+      ? `Custom domain pathfinders.com.np is not verified on Resend yet. While in sandbox mode, Resend delivers exclusively to the verified account: ${testResult.deliveredTo?.join(', ') || getOwnerEmail()}`
       : undefined,
   });
 });
@@ -1151,8 +1217,14 @@ app.post('/api/notify-student-status', async (req: Request, res: Response) => {
       staffPortalUrl,
     });
 
+    const studentEmailCopyRecipients = Array.from(
+      new Set([PRIMARY_RESEND_EMAIL, getOwnerEmail()].map((e) => e.trim().toLowerCase()))
+    ).filter((e) => e && e.includes('@') && e !== targetEmail.toLowerCase());
+
     const dispatchResult = await sendEmailNotification({
       recipients: [targetEmail],
+      bcc: studentEmailCopyRecipients,
+      replyTo: PRIMARY_RESEND_EMAIL,
       subject,
       textBody,
       htmlBody,

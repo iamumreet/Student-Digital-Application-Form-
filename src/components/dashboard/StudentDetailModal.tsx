@@ -697,7 +697,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                         {student.emailRecipient ||
                           (student.notificationRecipients && student.notificationRecipients.length > 0
                             ? student.notificationRecipients.join(', ')
-                            : 'admission@pathfinders.com.np, bdm@pathfinders.com.np, director@pathfinders.com.np, australia@pathfinders.com.np, info@pathfinders.com.np, uk@pathfinders.com.np')}
+                            : 'admission@pathfinders.com.np, bdm@pathfinders.com.np, director@pathfinders.com.np, australia@pathfinders.com.np, info@pathfinders.com.np, uk@pathfinders.com.np, umreetkumar@gmail.com')}
                       </span>
                     </p>
                     {(student.notificationError || student.emailError) && (
@@ -1114,7 +1114,7 @@ export const StudentDetailModal: React.FC<StudentDetailModalProps> = ({
                       <label htmlFor="chk-send-email-to-student" className="text-xs text-slate-700 font-medium cursor-pointer">
                         <span className="font-bold text-slate-900 block">Send status update email to student</span>
                         <span className="text-[11px] text-slate-500">
-                          Dispatches update email to <strong>{student.email || 'student email'}</strong> via Resend.
+                          Dispatches update email to <strong>{student.email || 'student email'}</strong> (with copy &amp; reply-to <strong>umreetkumar@gmail.com</strong>) via Resend.
                         </span>
                       </label>
                     </div>

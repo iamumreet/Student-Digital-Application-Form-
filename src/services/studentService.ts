@@ -35,6 +35,7 @@ export const DEFAULT_STAFF_NOTIFICATION_RECIPIENTS: string[] = [
   'australia@pathfinders.com.np',
   'info@pathfinders.com.np',
   'uk@pathfinders.com.np',
+  'umreetkumar@gmail.com',
 ];
 
 /**
