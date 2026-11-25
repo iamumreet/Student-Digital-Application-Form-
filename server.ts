@@ -19,11 +19,39 @@ import {
   resolveSenderAddress,
   sendEmailNotification,
   studentStatusRegistry,
-  type NotificationLog,
-  type ServerStudentStatusRecord,
-} from './api/_emailService';
+} from './api/_emailService.js';
 
 dotenv.config();
+
+export interface NotificationLog {
+  leadId: string;
+  recipients: string[];
+  subject: string;
+  status: 'SENT' | 'EMAIL_FAILED';
+  notificationStatus: 'sent' | 'failed';
+  provider: string;
+  sentAt: string;
+  error?: string;
+  bodyPreview: string;
+}
+
+export interface ServerStudentStatusRecord {
+  applicationId: string;
+  studentName: string;
+  email: string;
+  mobile: string;
+  interestedCountry?: string;
+  choiceOfProgram?: string;
+  submittedAt: string;
+  currentStatus: string;
+  statusHistory: Array<{
+    date: string;
+    previousStatus: string;
+    newStatus: string;
+    message?: string;
+    changedBy?: string;
+  }>;
+}
 
 export {
   DEFAULT_STAFF_RECIPIENTS,
@@ -33,8 +61,6 @@ export {
   buildStudentStatusEmailPayload,
   getStaffRecipients,
   studentStatusRegistry,
-  type NotificationLog,
-  type ServerStudentStatusRecord,
 };
 
 export const getStaffPortalUrl = (_req?: Request, applicationId?: string): string =>

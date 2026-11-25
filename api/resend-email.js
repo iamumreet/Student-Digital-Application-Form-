@@ -1,12 +1,10 @@
 import {
-  handleNotifyEmail,
+  handleResendEmail,
   parseJsonBody,
   sendJson,
-  ServerlessRequest,
-  ServerlessResponse,
-} from './_emailService';
+} from './_emailService.js';
 
-export default async function handler(req: ServerlessRequest, res: ServerlessResponse) {
+export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
     res.end();
@@ -18,17 +16,17 @@ export default async function handler(req: ServerlessRequest, res: ServerlessRes
       success: false,
       emailStatus: 'EMAIL_FAILED',
       notificationStatus: 'failed',
-      error: `Method ${req.method} not allowed. Use POST /api/notify-email.`,
+      error: `Method ${req.method} not allowed. Use POST /api/resend-email.`,
     });
     return;
   }
 
   try {
     const body = await parseJsonBody(req);
-    const { statusCode, payload } = await handleNotifyEmail(body);
+    const { statusCode, payload } = await handleResendEmail(body);
     sendJson(res, statusCode, payload);
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Unknown email dispatch error';
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Resend endpoint error';
     sendJson(res, 500, {
       success: false,
       emailStatus: 'EMAIL_FAILED',

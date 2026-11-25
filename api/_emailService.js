@@ -1,4 +1,7 @@
-import type { IncomingMessage, ServerResponse } from 'http';
+/**
+ * Shared Resend Email Service & Registry Utilities
+ * Used by both Vercel Serverless Functions (/api/*.js) and Express server (server.ts).
+ */
 
 /**
  * Primary notification email recipient for Pathfinder International Education
@@ -8,9 +11,9 @@ export const PRIMARY_NOTIFICATION_EMAIL = 'umreetkumar@gmail.com';
 
 /**
  * Official Staff Notification Recipients
- * Updated exclusively to umreetkumar@gmail.com (previous pathfinders.com.np addresses removed).
+ * Updated exclusively to umreetkumar@gmail.com.
  */
-export const DEFAULT_STAFF_RECIPIENTS: string[] = ['umreetkumar@gmail.com'];
+export const DEFAULT_STAFF_RECIPIENTS = ['umreetkumar@gmail.com'];
 
 const LEGACY_PATHFINDER_EMAILS = new Set([
   'admission@pathfinders.com.np',
@@ -33,10 +36,10 @@ const FREE_WEBMAIL_DOMAINS = new Set([
 
 /**
  * Resolves active notification recipients.
- * Always ensures umreetkumar@gmail.com is the recipient and excludes legacy unverified addresses
- * unless explicitly overridden with non-legacy recipients.
+ * Always ensures umreetkumar@gmail.com is included and excludes legacy unverified addresses.
+ * @returns {string[]}
  */
-export const getStaffRecipients = (): string[] => {
+export const getStaffRecipients = () => {
   const envRecipients = process.env.STAFF_NOTIFICATION_EMAILS;
   if (envRecipients && envRecipients.trim()) {
     const parsed = envRecipients
@@ -45,7 +48,7 @@ export const getStaffRecipients = (): string[] => {
       .filter((e) => e.length > 0 && e.includes('@') && !LEGACY_PATHFINDER_EMAILS.has(e));
 
     if (parsed.length > 0) {
-      const set = new Set<string>(parsed);
+      const set = new Set(parsed);
       set.add(PRIMARY_RESEND_EMAIL);
       return Array.from(set);
     }
@@ -55,8 +58,9 @@ export const getStaffRecipients = (): string[] => {
 
 /**
  * Resolves owner email (defaults to umreetkumar@gmail.com)
+ * @returns {string}
  */
-export const getOwnerEmail = (): string => {
+export const getOwnerEmail = () => {
   const envOwner = process.env.OWNER_EMAIL?.trim().toLowerCase();
   if (envOwner && envOwner.includes('@') && !LEGACY_PATHFINDER_EMAILS.has(envOwner)) {
     return envOwner;
@@ -71,8 +75,10 @@ export const PRODUCTION_STAFF_PORTAL_URL = 'https://student-digital-application-
 
 /**
  * Computes the authenticated Staff Portal link for the prominent email button.
+ * @param {string} [applicationId]
+ * @returns {string}
  */
-export const getStaffPortalUrl = (applicationId?: string): string => {
+export const getStaffPortalUrl = (applicationId) => {
   const ref = String(applicationId || '').trim();
   const configuredAppUrl = process.env.APP_URL?.trim();
   let baseUrl = PRODUCTION_STAFF_PORTAL_URL;
@@ -96,58 +102,38 @@ export const getStaffPortalUrl = (applicationId?: string): string => {
 
 /**
  * In-memory registry to prevent duplicate email notifications during retry
+ * @type {Set<string>}
  */
-export const dispatchedLeadIds = new Set<string>();
+export const dispatchedLeadIds = new Set();
 
-export interface NotificationLog {
-  leadId: string;
-  recipients: string[];
-  subject: string;
-  status: 'SENT' | 'EMAIL_FAILED';
-  notificationStatus: 'sent' | 'failed';
-  provider: string;
-  sentAt: string;
-  error?: string;
-  bodyPreview: string;
-}
+/**
+ * In-memory notification log store
+ * @type {Array<Record<string, any>>}
+ */
+export const notificationLogs = [];
 
-export const notificationLogs: NotificationLog[] = [];
-
-export interface ServerStudentStatusRecord {
-  applicationId: string;
-  studentName: string;
-  email: string;
-  mobile: string;
-  interestedCountry?: string;
-  choiceOfProgram?: string;
-  submittedAt: string;
-  currentStatus: string;
-  statusHistory: Array<{
-    date: string;
-    previousStatus: string;
-    newStatus: string;
-    message?: string;
-    changedBy?: string;
-  }>;
-}
-
-export const studentStatusRegistry = new Map<string, ServerStudentStatusRecord>();
+/**
+ * In-memory student status registry
+ * @type {Map<string, Record<string, any>>}
+ */
+export const studentStatusRegistry = new Map();
 
 /**
  * Generates the official Pathfinder staff notification email payload
+ * @param {{
+ *   applicationId: string;
+ *   leadId: string;
+ *   studentName: string;
+ *   mobile: string;
+ *   email: string;
+ *   interestedCountry: string;
+ *   choiceOfProgram: string;
+ *   submittedAt?: string;
+ *   status?: string;
+ *   staffPortalUrl: string;
+ * }} data
  */
-export const buildEmailPayload = (data: {
-  applicationId: string;
-  leadId: string;
-  studentName: string;
-  mobile: string;
-  email: string;
-  interestedCountry: string;
-  choiceOfProgram: string;
-  submittedAt?: string;
-  status?: string;
-  staffPortalUrl: string;
-}) => {
+export const buildEmailPayload = (data) => {
   const refId = data.applicationId || data.leadId;
   const subDate = data.submittedAt
     ? new Date(data.submittedAt).toLocaleString('en-GB', {
@@ -304,16 +290,17 @@ Tel: 01-5361805 | 01-5361853 | Email: info@pathfinders.com.np
 
 /**
  * Generates the official Pathfinder student status update email payload
+ * @param {{
+ *   applicationId: string;
+ *   studentName: string;
+ *   previousStatus: string;
+ *   newStatus: string;
+ *   staffMessage?: string;
+ *   updatedAt?: string;
+ *   staffPortalUrl?: string;
+ * }} data
  */
-export const buildStudentStatusEmailPayload = (data: {
-  applicationId: string;
-  studentName: string;
-  previousStatus: string;
-  newStatus: string;
-  staffMessage?: string;
-  updatedAt?: string;
-  staffPortalUrl?: string;
-}) => {
+export const buildStudentStatusEmailPayload = (data) => {
   const refId = data.applicationId;
   const staffPortalUrl = data.staffPortalUrl || getStaffPortalUrl(refId);
   const updateDate = data.updatedAt
@@ -493,8 +480,9 @@ Tel: 01-5361805 | 01-5361853 | Email: info@pathfinders.com.np
  * Resolves a verified Resend sender address.
  * Free webmail domains (gmail.com, yahoo.com, etc.) cannot be verified on Resend,
  * so they are safely overridden with Resend's permitted sender onboarding@resend.dev.
+ * @returns {{ fromAddress: string; rawFrom: string }}
  */
-export function resolveSenderAddress(): { fromAddress: string; rawFrom: string } {
+export function resolveSenderAddress() {
   const defaultSandboxSender = 'Pathfinder International Education <onboarding@resend.dev>';
   const rawFrom = process.env.RESEND_FROM_EMAIL?.trim() || '(not set)';
 
@@ -531,23 +519,25 @@ export function resolveSenderAddress(): { fromAddress: string; rawFrom: string }
 /**
  * Server-side email dispatcher using Resend API exclusively.
  * Accurately reports success ONLY when the requested recipients accept delivery.
+ * @param {{
+ *   recipients: string[];
+ *   bcc?: string[];
+ *   replyTo?: string | string[];
+ *   subject: string;
+ *   textBody: string;
+ *   htmlBody: string;
+ *   isStaffAlert?: boolean;
+ * }} options
+ * @returns {Promise<{
+ *   success: boolean;
+ *   provider: string;
+ *   error?: string;
+ *   deliveredTo?: string[];
+ *   resendId?: string;
+ *   isSandboxMode?: boolean;
+ * }>}
  */
-export async function sendEmailNotification(options: {
-  recipients: string[];
-  bcc?: string[];
-  replyTo?: string | string[];
-  subject: string;
-  textBody: string;
-  htmlBody: string;
-  isStaffAlert?: boolean;
-}): Promise<{
-  success: boolean;
-  provider: string;
-  error?: string;
-  deliveredTo?: string[];
-  resendId?: string;
-  isSandboxMode?: boolean;
-}> {
+export async function sendEmailNotification(options) {
   const recipients = options.recipients
     .map((e) => e.trim())
     .filter((e) => e.length > 0 && e.includes('@'));
@@ -578,7 +568,8 @@ export async function sendEmailNotification(options: {
   console.log(`[RESEND DIAGNOSTIC] 2. RESEND_FROM_EMAIL (env): ${rawFrom}`);
   console.log(`[RESEND DIAGNOSTIC] 3. Target recipients: ${JSON.stringify(recipients)}`);
 
-  const emailRequestBody: Record<string, unknown> = {
+  /** @type {Record<string, unknown>} */
+  const emailRequestBody = {
     from: fromAddress,
     to: recipients,
     subject: options.subject,
@@ -607,7 +598,7 @@ export async function sendEmailNotification(options: {
     console.log(`[RESEND DIAGNOSTIC] 4. Resend API HTTP status: ${response.status}`);
 
     if (response.ok) {
-      const responseData = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      const responseData = /** @type {Record<string, unknown>} */ (await response.json().catch(() => ({})));
       const resendId = typeof responseData.id === 'string' ? responseData.id : 'unknown';
       console.log(`[RESEND DIAGNOSTIC] 5. Exact Resend API message: Success (HTTP ${response.status})`);
       console.log(`[RESEND DIAGNOSTIC] 6. Returned Resend email ID: ${resendId}`);
@@ -617,7 +608,7 @@ export async function sendEmailNotification(options: {
       return { success: true, provider: 'resend', deliveredTo: recipients, resendId };
     }
 
-    const errorJson = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const errorJson = /** @type {Record<string, unknown>} */ (await response.json().catch(() => ({})));
     const rawMsg = typeof errorJson.message === 'string' ? errorJson.message : '';
     const errName = typeof errorJson.name === 'string' ? errorJson.name : '';
     const exactError = rawMsg
@@ -639,7 +630,8 @@ export async function sendEmailNotification(options: {
       bccList.length > 0 &&
       recipients.some((r) => r.toLowerCase() === sandboxOwnerEmail.toLowerCase())
     ) {
-      const retryBody: Record<string, unknown> = {
+      /** @type {Record<string, unknown>} */
+      const retryBody = {
         from: fromAddress,
         to: [sandboxOwnerEmail],
         subject: options.subject,
@@ -658,9 +650,15 @@ export async function sendEmailNotification(options: {
         body: JSON.stringify(retryBody),
       });
       if (retryResponse.ok) {
-        const retryData = (await retryResponse.json().catch(() => ({}))) as Record<string, unknown>;
+        const retryData = /** @type {Record<string, unknown>} */ (await retryResponse.json().catch(() => ({})));
         const retryId = typeof retryData.id === 'string' ? retryData.id : 'unknown';
-        return { success: true, provider: 'resend-sandbox', deliveredTo: [sandboxOwnerEmail], resendId: retryId, isSandboxMode: true };
+        return {
+          success: true,
+          provider: 'resend-sandbox',
+          deliveredTo: [sandboxOwnerEmail],
+          resendId: retryId,
+          isSandboxMode: true,
+        };
       }
     }
 
@@ -675,24 +673,20 @@ export async function sendEmailNotification(options: {
       error: detailedError,
       isSandboxMode: isSandboxRestriction,
     };
-  } catch (apiErr: unknown) {
+  } catch (apiErr) {
     const msg = apiErr instanceof Error ? apiErr.message : 'Resend API network error';
     console.error('[EMAIL NOTIFICATION EXCEPTION] Resend dispatch exception:', msg);
     return { success: false, provider: 'resend', error: `Network error connecting to Resend API: ${msg}` };
   }
 }
 
-export interface ServerlessRequest extends IncomingMessage {
-  body?: unknown;
-  query?: Record<string, string | string[] | undefined>;
-}
-
-export interface ServerlessResponse extends ServerResponse {
-  status?: (code: number) => ServerlessResponse;
-  json?: (data: unknown) => void;
-}
-
-export function sendJson(res: ServerlessResponse, statusCode: number, data: unknown): void {
+/**
+ * Sends a JSON HTTP response cleanly for both Express/Vercel and raw Node ServerResponse.
+ * @param {any} res
+ * @param {number} statusCode
+ * @param {unknown} data
+ */
+export function sendJson(res, statusCode, data) {
   if (typeof res.status === 'function' && typeof res.json === 'function') {
     res.status(statusCode).json(data);
     return;
@@ -702,39 +696,48 @@ export function sendJson(res: ServerlessResponse, statusCode: number, data: unkn
   res.end(JSON.stringify(data));
 }
 
-export async function parseJsonBody<T = Record<string, unknown>>(req: ServerlessRequest): Promise<T> {
+/**
+ * Parses JSON body safely for both Vercel (pre-parsed req.body) and raw Node IncomingMessage.
+ * @param {any} req
+ * @returns {Promise<Record<string, any>>}
+ */
+export async function parseJsonBody(req) {
   if (req.body && typeof req.body === 'object') {
-    return req.body as T;
+    return req.body;
   }
   if (typeof req.body === 'string' && req.body.trim()) {
     try {
-      return JSON.parse(req.body) as T;
+      return JSON.parse(req.body);
     } catch {
-      return {} as T;
+      return {};
     }
   }
 
-  return new Promise<T>((resolve) => {
+  return new Promise((resolve) => {
     let raw = '';
     req.on('data', (chunk) => {
       raw += chunk;
     });
     req.on('end', () => {
       if (!raw.trim()) {
-        resolve({} as T);
+        resolve({});
         return;
       }
       try {
-        resolve(JSON.parse(raw) as T);
+        resolve(JSON.parse(raw));
       } catch {
-        resolve({} as T);
+        resolve({});
       }
     });
-    req.on('error', () => resolve({} as T));
+    req.on('error', () => resolve({}));
   });
 }
 
-export async function handleNotifyEmail(body: Record<string, unknown>) {
+/**
+ * Handles new student enquiry staff alert notification (/api/notify-email).
+ * @param {Record<string, any>} body
+ */
+export async function handleNotifyEmail(body) {
   const {
     applicationId,
     leadId,
@@ -821,7 +824,7 @@ export async function handleNotifyEmail(body: Record<string, unknown>) {
   });
 
   if (simulateFailure === true) {
-    const failedEntry: NotificationLog = {
+    const failedEntry = {
       leadId: refId,
       recipients,
       subject,
@@ -857,7 +860,7 @@ export async function handleNotifyEmail(body: Record<string, unknown>) {
   const now = new Date().toISOString();
 
   if (!dispatchResult.success) {
-    const failedEntry: NotificationLog = {
+    const failedEntry = {
       leadId: refId,
       recipients,
       subject,
@@ -887,7 +890,7 @@ export async function handleNotifyEmail(body: Record<string, unknown>) {
   dispatchedLeadIds.add(refId);
 
   const finalRecipients = dispatchResult.deliveredTo || recipients;
-  const sentEntry: NotificationLog = {
+  const sentEntry = {
     leadId: refId,
     recipients: finalRecipients,
     subject,
@@ -916,7 +919,11 @@ export async function handleNotifyEmail(body: Record<string, unknown>) {
   };
 }
 
-export async function handleResendEmail(body: Record<string, unknown>) {
+/**
+ * Handles staff manual resend email notification (/api/resend-email).
+ * @param {Record<string, any>} body
+ */
+export async function handleResendEmail(body) {
   const {
     applicationId,
     leadId,
@@ -972,7 +979,7 @@ export async function handleResendEmail(body: Record<string, unknown>) {
   const now = new Date().toISOString();
 
   if (!dispatchResult.success) {
-    const failedEntry: NotificationLog = {
+    const failedEntry = {
       leadId: refId,
       recipients,
       subject: resendSubject,
@@ -1001,7 +1008,7 @@ export async function handleResendEmail(body: Record<string, unknown>) {
   dispatchedLeadIds.add(refId);
 
   const finalRecipients = dispatchResult.deliveredTo || recipients;
-  const entry: NotificationLog = {
+  const entry = {
     leadId: refId,
     recipients: finalRecipients,
     subject: resendSubject,
@@ -1028,7 +1035,11 @@ export async function handleResendEmail(body: Record<string, unknown>) {
   };
 }
 
-export async function handleNotifyStudentStatus(body: Record<string, unknown>) {
+/**
+ * Handles student application status update email notification (/api/notify-student-status).
+ * @param {Record<string, any>} body
+ */
+export async function handleNotifyStudentStatus(body) {
   const {
     applicationId,
     leadId,

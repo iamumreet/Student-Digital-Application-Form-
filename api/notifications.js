@@ -2,11 +2,9 @@ import {
   getStaffRecipients,
   notificationLogs,
   sendJson,
-  ServerlessRequest,
-  ServerlessResponse,
-} from './_emailService';
+} from './_emailService.js';
 
-export default function handler(_req: ServerlessRequest, res: ServerlessResponse) {
+export default function handler(_req, res) {
   sendJson(res, 200, {
     recipients: getStaffRecipients(),
     total: notificationLogs.length,

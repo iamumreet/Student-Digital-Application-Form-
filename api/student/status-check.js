@@ -1,12 +1,10 @@
 import {
   parseJsonBody,
   sendJson,
-  ServerlessRequest,
-  ServerlessResponse,
   studentStatusRegistry,
-} from '../_emailService';
+} from '../_emailService.js';
 
-export default async function handler(req: ServerlessRequest, res: ServerlessResponse) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
     sendJson(res, 405, { success: false, error: 'Method not allowed' });
     return;
@@ -35,8 +33,8 @@ export default async function handler(req: ServerlessRequest, res: ServerlessRes
       return;
     }
 
-    const storedEmail = student.email.toLowerCase().trim();
-    const storedMobileDigits = student.mobile.replace(/\D/g, '');
+    const storedEmail = String(student.email || '').toLowerCase().trim();
+    const storedMobileDigits = String(student.mobile || '').replace(/\D/g, '');
     const inputDigits = cleanId.replace(/\D/g, '');
 
     const emailMatches = storedEmail === cleanId;
@@ -50,7 +48,7 @@ export default async function handler(req: ServerlessRequest, res: ServerlessRes
       return;
     }
 
-    const emailParts = student.email.split('@');
+    const emailParts = String(student.email || '').split('@');
     const maskedEmail =
       emailParts.length === 2 && emailParts[0].length > 2
         ? `${emailParts[0][0]}***${emailParts[0].slice(-1)}@${emailParts[1]}`
@@ -66,14 +64,14 @@ export default async function handler(req: ServerlessRequest, res: ServerlessRes
         choiceOfProgram: student.choiceOfProgram || 'Not Specified',
         submittedAt: student.submittedAt,
         currentStatus: student.currentStatus,
-        statusHistory: student.statusHistory.map((h) => ({
+        statusHistory: (Array.isArray(student.statusHistory) ? student.statusHistory : []).map((h) => ({
           date: h.date,
           status: h.newStatus,
           message: h.message,
         })),
       },
     });
-  } catch (err: unknown) {
+  } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Status check error';
     sendJson(res, 500, { success: false, error: errorMsg });
   }

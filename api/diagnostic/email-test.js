@@ -4,11 +4,9 @@ import {
   resolveSenderAddress,
   sendEmailNotification,
   sendJson,
-  ServerlessRequest,
-  ServerlessResponse,
-} from '../_emailService';
+} from '../_emailService.js';
 
-export default async function handler(req: ServerlessRequest, res: ServerlessResponse) {
+export default async function handler(req, res) {
   if (req.method !== 'GET') {
     sendJson(res, 405, { success: false, error: 'Method not allowed' });
     return;
